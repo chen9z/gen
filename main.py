@@ -6,6 +6,8 @@ import dotenv
 from openai import OpenAI
 from qdrant_client import QdrantClient
 
+import llm_model
+
 dotenv.load_dotenv()
 logging.basicConfig(stream=sys.stdout, level=logging.INFO)
 logging.getLogger().addHandler(logging.StreamHandler(stream=sys.stdout))
@@ -28,13 +30,6 @@ Remember, don't blindly repeat the contexts verbatim. And here is the user quest
 """
 
 
-def get_response_message(prompt: str, model="gpt-3.5-turbo-0613", temperature=0.1) -> str:
-    response = llm.chat.completions.create(model=model,
-                                           temperature=temperature,
-                                           messages=[{"role": "user", "content": prompt}])
-    return response.choices[0].message.content
-
-
 if __name__ == '__main__':
     client = QdrantClient(path=".storage")
     collect_name = "test_doc"
@@ -52,4 +47,4 @@ if __name__ == '__main__':
     system_prompt = prompt_template.format(context="\n\n".join(response.document for response in query_result))
     system_prompt = system_prompt + "\nwhat is langchain"
 
-    print(get_response_message(system_prompt))
+    print(llm_model.get_response_message(system_prompt))
