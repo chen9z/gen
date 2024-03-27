@@ -8,10 +8,9 @@ import google.generativeai as genai
 dotenv.load_dotenv()
 
 openai = OpenAI(base_url=os.getenv("OPENAI_API_BASE"), api_key=os.getenv("OPENAI_API_KEY"))
-
 groq = Groq(api_key=os.getenv("GROQ_API_KEY"), base_url=os.getenv("GROQ_API_BASE"))
 
-genai.configure(api_key=os.getenv("GENAI_API_KEY"))
+genai.configure(api_key=os.getenv("GEMINI_API_KEY"))
 model = genai.GenerativeModel("gemini-pro")
 
 

@@ -9,6 +9,7 @@ from spliter import SentenceSpliter
 
 instruction = "为这个句子生成表示以用于检索相关文章："
 
+
 class QueryModel:
     def __init__(self, model_name_or_path="BAAI/bge-large-zh-v1.5", persist_dir="./storage"):
         self.model_name_or_path = model_name_or_path
@@ -26,7 +27,7 @@ class QueryModel:
             embeddings = self.model.encode(sentence, normalize_embeddings=True)
             text_id = str(uuid.uuid4())
             payload = {"text": sentence}
-            point = PointStruct(id=text_id, vector=embeddings, payload=payload)
+            point = PointStruct(id=text_id, vector=embeddings.tolist(), payload=payload)
             points.append(point)
 
         operation = self.vector_client.upsert(
@@ -45,17 +46,18 @@ class QueryModel:
         query_result = self.vector_client.search(collection_name, q_embeddings, limit=2)
         return query_result
 
+
 if __name__ == '__main__':
     query_model = QueryModel()
-    connection_name = "rag"
-    with open("./data/rag.txt", "r") as f:
+    connection_name = "design"
+    with open("./data/design.md", "r") as f:
         data = f.read()
-        spliter = SentenceSpliter(100, 10)
+        spliter = SentenceSpliter(1000, 100)
         results = spliter.split_text(data)
-        for r in results:
-            print(f'Sentence: {r}\n')
+        # for r in results:
+            # print(f'Sentence: {r}\n')
         query_model.encode(connection_name, results)
 
-        results = query_model.query(connection_name, "RAG")
+        results = query_model.query(connection_name, "RocketMQ 设计理念")
         for ll in results:
             print(ll)

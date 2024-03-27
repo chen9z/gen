@@ -29,22 +29,21 @@ Answer language: Chinese
 Remember, don't blindly repeat the contexts verbatim. And here is the user question:
 """
 
-
 if __name__ == '__main__':
-    client = QdrantClient(path=".storage")
-    collect_name = "test_doc"
-    collection_info = client.get_collection(collect_name)
-    if collection_info is None:
-        docs = ["Qdrant has Langchain integrations", "Qdrant also has Llama Index integrations"]
-        metadata = [{"source": "LangChain-docs"}, {"source": "LlamaIndex-docs"}]
-        ids = [42, 2]
-        client.add(collection_name=collect_name,
-                   documents=docs,
-                   metadata=metadata,
-                   ids=ids)
-
-    query_result = client.query(collect_name, "langchain", limit=2)
-    system_prompt = prompt_template.format(context="\n\n".join(response.document for response in query_result))
-    system_prompt = system_prompt + "\nwhat is langchain"
-
-    print(llm_model.get_response_message(system_prompt))
+    # collect_name="test_doc"
+    # client = QdrantClient(path=".storage")
+    # docs = ["Qdrant has Langchain integrations", "Qdrant also has Llama Index integrations"]
+    # metadata = [{"source": "LangChain-docs"}, {"source": "LlamaIndex-docs"}]
+    # ids = [42, 2]
+    # client.add(collection_name=collect_name,
+    #            documents=docs,
+    #            metadata=metadata,
+    #            ids=ids)
+    #
+    # query_result = client.query(collect_name, "langchain", limit=2)
+    # print(query_result)
+    # system_prompt = prompt_template.format(context="\n\n".join(response.document for response in query_result))
+    # system_prompt = system_prompt + "\nwhat is langchain"
+    #
+    # print(llm_model.get_response_message(system_prompt))
+    print(llm_model.get_response_message_with_gemini("write a stroy about a cat and a dog playing in the park."))
