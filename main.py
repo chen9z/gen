@@ -1,49 +1,46 @@
-import os
 import logging
 import sys
 
-import dotenv
-from openai import OpenAI
-from qdrant_client import QdrantClient
-
 import llm_model
+from rag_query import QueryModel
+from spliter import SentenceSpliter
 
-dotenv.load_dotenv()
 logging.basicConfig(stream=sys.stdout, level=logging.INFO)
 logging.getLogger().addHandler(logging.StreamHandler(stream=sys.stdout))
-os.environ["TOKENIZERS_PARALLELISM"] = "false"
-llm = OpenAI(base_url=os.getenv("OPENAI_API_BASE"), api_key=os.getenv("OPENAI_API_KEY"))
 
 prompt_template = """
-You are a large language AI assistant. You are given a user question, and please write clean, concise and accurate answer to the question. You will be given a set of related contexts to the question. Please use the context and cite the context at the end of each sentence if applicable.
-
-Your answer must be correct, accurate and written by an expert using an unbiased and professional tone. Please limit to 1024 tokens. Do not give any information that is not related to the question, and do not repeat. Say "information is missing on" followed by the related topic, if the given context do not provide sufficient information.
-
-your answer must be written in the same language as the question.
+You are a large language AI assistant. You are given a user question, and please write clean, concise and accurate answer to the question.
+Your answer must be correct, accurate and written by an expert using an unbiased and professional tone. Please limit to 1024 tokens.
+Do not give any information that is not related to the question, and do not repeat. 
+Say "information is missing on" followed by the related topic, if the given context do not provide sufficient information.
+your answer must be written with **Chinese**
 
 Here are the set of contexts:
 
 {context}
 
-Answer language: Chinese
-Remember, don't blindly repeat the contexts verbatim. And here is the user question:
+Remember, don't blindly repeat the contexts verbatim.
+And here is the user question:
 """
 
 if __name__ == '__main__':
-    # collect_name="test_doc"
-    # client = QdrantClient(path=".storage")
-    # docs = ["Qdrant has Langchain integrations", "Qdrant also has Llama Index integrations"]
-    # metadata = [{"source": "LangChain-docs"}, {"source": "LlamaIndex-docs"}]
-    # ids = [42, 2]
-    # client.add(collection_name=collect_name,
-    #            documents=docs,
-    #            metadata=metadata,
-    #            ids=ids)
-    #
-    # query_result = client.query(collect_name, "langchain", limit=2)
-    # print(query_result)
-    # system_prompt = prompt_template.format(context="\n\n".join(response.document for response in query_result))
-    # system_prompt = system_prompt + "\nwhat is langchain"
-    #
-    # print(llm_model.get_response_message(system_prompt))
-    print(llm_model.get_response_message_with_gemini("write a stroy about a cat and a dog playing in the park."))
+    query_model = QueryModel()
+    connection_name = "ymxt"
+    with open("./data/ymxt.txt", "r") as f:
+        data = f.read()
+        spliter = SentenceSpliter(2000, 200)
+        results = spliter.split_text(data)
+        query_model.encode(connection_name, results)
+
+        while True:
+            prompt = input("请输入问题：")
+            if prompt == "exit":
+                break
+            results = query_model.query(connection_name, prompt, 10)
+            for result in results:
+                print(f"Results: {result} \n\n")
+
+            system_prompt = prompt_template.format(
+                context="\n\n".join(response.payload.get("text") for response in results))
+            print("System Prompt: \n", system_prompt)
+            print(llm_model.get_response_message_with_groq(system_prompt))
