@@ -18,12 +18,14 @@ class QueryModel:
 
     def encode(self, collection_name: str, sentences: List[str]):
         collection_info = self.vector_client.get_collection(collection_name=collection_name)
-        if collection_info is None or collection_info.status != CollectionStatus.GREEN:
-            self.vector_client.recreate_collection(
-                collection_name=collection_name,
-                vectors_config=VectorParams(size=self.encoder.get_sentence_embedding_dimension(),
-                                            distance=Distance.COSINE),
-            )
+        if collection_info.status == CollectionStatus.GREEN:
+            return
+
+        self.vector_client.recreate_collection(
+            collection_name=collection_name,
+            vectors_config=VectorParams(size=self.encoder.get_sentence_embedding_dimension(),
+                                        distance=Distance.COSINE),
+        )
         points = []
         for sentence in sentences:
             embeddings = self.encoder.encode(sentence, show_progress_bar=True, normalize_embeddings=True)
@@ -43,7 +45,7 @@ class QueryModel:
         else:
             print("Data inserted Failed")
 
-    def query(self, collection_name: str, queries: Union[str, List[str]], limit=5) -> List[ScoredPoint]:
+    def query(self, collection_name: str, queries: Union[str, List[str]], limit=10) -> List[ScoredPoint]:
         q_embeddings = self.encoder.encode(instruction + queries, normalize_embeddings=True)
-        query_result = self.vector_client.search(collection_name, q_embeddings, limit=limit * 10)
-        return sorted(query_result, key=lambda x: x.score, reverse=True)[:limit]
+        query_result = self.vector_client.search(collection_name, q_embeddings, limit=limit)
+        return query_result
