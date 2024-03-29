@@ -2,36 +2,38 @@ import uuid
 from typing import Union, List
 
 from qdrant_client import QdrantClient
-from qdrant_client.http.models import CollectionStatus
 from qdrant_client.models import PointStruct, UpdateStatus, ScoredPoint, VectorParams, Distance
 from sentence_transformers import SentenceTransformer
+
+from spliter import Splitter
 
 instruction = "为这个句子生成表示以用于检索相关文章："
 
 
-class QueryModel:
-    def __init__(self, model_name_or_path="BAAI/bge-large-zh-v1.5", persist_dir="./storage"):
+class QueryIndex:
+    def __init__(self, splitter: Splitter, model_name_or_path="BAAI/bge-large-zh-v1.5", persist_dir="./storage"):
         self.model_name_or_path = model_name_or_path
         self.persist_dir = persist_dir
         self.encoder = SentenceTransformer(model_name_or_path, trust_remote_code=True)
         self.vector_client = QdrantClient(path=persist_dir)
+        self.splitter = splitter
 
-    def encode(self, collection_name: str, sentences: List[str]):
-        collection_info = self.vector_client.get_collection(collection_name=collection_name)
-        if collection_info.status == CollectionStatus.GREEN:
-            return
+    def encode(self, collection_name: str, path: str):
+        model_token = self.encoder.get_sentence_embedding_dimension()
+        # check if collection exists
+        if not self.vector_client.collection_exists(collection_name=collection_name):
+            self.vector_client.recreate_collection(
+                collection_name=collection_name,
+                vectors_config=VectorParams(size=model_token,
+                                            distance=Distance.COSINE),
+            )
 
-        self.vector_client.recreate_collection(
-            collection_name=collection_name,
-            vectors_config=VectorParams(size=self.encoder.get_sentence_embedding_dimension(),
-                                        distance=Distance.COSINE),
-        )
+        documents = self.splitter.split(path, self.encoder.tokenizer)
         points = []
-        for sentence in sentences:
-            embeddings = self.encoder.encode(sentence, show_progress_bar=True, normalize_embeddings=True)
+        for doc in documents:
+            embeddings = self.encoder.encode(doc.content, show_progress_bar=True, normalize_embeddings=True)
             text_id = str(uuid.uuid4())
-            payload = {"text": sentence}
-            point = PointStruct(id=text_id, vector=embeddings.tolist(), payload=payload)
+            point = PointStruct(id=text_id, vector=embeddings.tolist(), payload=doc)
             points.append(point)
 
         operation = self.vector_client.upsert(

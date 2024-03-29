@@ -1,9 +1,11 @@
 import logging
+import mimetypes
 import sys
 
 import llm_model
-from rag_query import QueryModel
+from rag_query import QueryIndex
 from spliter import SentenceSpliter
+from spliter import TextSpliter
 
 logging.basicConfig(stream=sys.stdout, level=logging.INFO)
 logging.getLogger().addHandler(logging.StreamHandler(stream=sys.stdout))
@@ -24,23 +26,31 @@ And here is the user question:
 """
 
 if __name__ == '__main__':
-    query_model = QueryModel()
-    connection_name = "ymxt"
-    with open("./data/ymxt.txt", "r") as f:
-        data = f.read()
-        spliter = SentenceSpliter(2000, 200)
-        results = spliter.split_text(data)
-        query_model.encode(connection_name, results)
+    path = "./data/design.md"
+    file_type = mimetypes.guess_type(path)[0]
+    if file_type is None:
+        raise ValueError("Unsupported file type")
+    splitter = None
+    if file_type == "text/plain":
+        splitter = TextSpliter()
+    elif file_type == "text/markdown":
+        splitter = SentenceSpliter(2000, 200)
+    else:
+        raise ValueError("Unsupported file type")
 
-        while True:
-            prompt = input("请输入问题：")
-            if prompt == "exit":
-                break
-            results = query_model.query(connection_name, prompt, 10)
-            for result in results:
-                print(f"Results: {result} \n\n")
+    query_model = QueryIndex(splitter)
+    connection_name = "design"
+    query_model.encode(connection_name, path=path)
 
-            system_prompt = prompt_template.format(
-                context="\n\n".join(response.payload.get("text") for response in results))
-            print("System Prompt: \n", system_prompt)
-            print(llm_model.get_response_message_with_groq(system_prompt))
+    while True:
+        prompt = input("请输入问题：")
+        if prompt == "exit":
+            break
+        results = query_model.query(connection_name, prompt, 10)
+        for result in results:
+            print(f"Results: {result} \n\n")
+
+        system_prompt = prompt_template.format(
+            context="\n\n".join(response.payload.get("content") for response in results))
+        print("System Prompt: \n", system_prompt)
+        print(llm_model.get_response_message_with_groq(system_prompt))
