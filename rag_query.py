@@ -9,7 +9,6 @@ from spliter import Splitter
 
 instruction = "为这个句子生成表示以用于检索相关文章："
 
-
 class QueryIndex:
     def __init__(self, splitter: Splitter, model_name_or_path="BAAI/bge-large-zh-v1.5", persist_dir="./storage"):
         self.model_name_or_path = model_name_or_path
@@ -21,19 +20,22 @@ class QueryIndex:
     def encode(self, collection_name: str, path: str):
         model_token = self.encoder.get_sentence_embedding_dimension()
         # check if collection exists
-        if not self.vector_client.collection_exists(collection_name=collection_name):
-            self.vector_client.recreate_collection(
-                collection_name=collection_name,
-                vectors_config=VectorParams(size=model_token,
-                                            distance=Distance.COSINE),
-            )
+        if self.vector_client.collection_exists(collection_name=collection_name):
+            return
 
-        documents = self.splitter.split(path, self.encoder.tokenizer)
+        self.vector_client.recreate_collection(
+            collection_name=collection_name,
+            vectors_config=VectorParams(size=model_token,
+                                        distance=Distance.COSINE),
+        )
+
+        documents = self.splitter.split(path, model_token, self.encoder.tokenizer.tokenize)
         points = []
         for doc in documents:
+            print(f">>>>>>>>>>>>>Encoding {doc.title}, start line: {doc.start_line}, end line: {doc.end_line}")
             embeddings = self.encoder.encode(doc.content, show_progress_bar=True, normalize_embeddings=True)
             text_id = str(uuid.uuid4())
-            point = PointStruct(id=text_id, vector=embeddings.tolist(), payload=doc)
+            point = PointStruct(id=text_id, vector=embeddings.tolist(), payload=doc.__dict__)
             points.append(point)
 
         operation = self.vector_client.upsert(
