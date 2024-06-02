@@ -23,6 +23,7 @@ Here are the set of contexts:
 Remember, don't blindly repeat the contexts verbatim.
 ###
 And here is the user question:
+{question}
 
 ###
 Answer:
@@ -49,14 +50,14 @@ if __name__ == '__main__':
         prompt = input("请输入问题：")
         if prompt == "exit":
             break
-        results = query_model.query(connection_name, prompt, 1000)
+        results = query_model.query(connection_name, prompt, 10000)
         results.sort(key=lambda x: x.score, reverse=True)
-        results = results[:15]
+        results = results[:20]
         results.sort(key=lambda x: x.payload.get("start_line"))
         for result in results:
             print(f"Results: {result.payload.get('start_line')} \n")
 
-        system_prompt = prompt_template.format(
-            context="\n\n".join(response.payload.get("content") for response in results))
-        print("System Prompt: \n", system_prompt)
-        print(llm_model.get_response_message_with_groq(system_prompt))
+        message = prompt_template.format(
+            context="\n\n".join(response.payload.get("content") for response in results), question=prompt)
+        print("System Prompt: \n", message)
+        print(llm_model.get_response_message_with_ollama(message,"command-r:35b-v0.1-q4_K_S"))

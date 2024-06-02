@@ -13,5 +13,5 @@ if __name__ == '__main__':
 
     response, history = model.chat(tokenizer, "你好", history=[])
     print(response)
-    response = model.chat(tokenizer, "你好，给我讲一个5000字的仙侠故事，要求筑基、练气、金丹、元婴", history=history)
+    response = model.g(tokenizer, "你好，给我讲一个 1000 字的短篇小说", history=history)
     print(response)
