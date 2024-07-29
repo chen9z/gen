@@ -9,8 +9,8 @@ dotenv.load_dotenv()
 openai = OpenAI(base_url=os.getenv("OPENAI_API_BASE"), api_key=os.getenv("OPENAI_API_KEY"))
 groq = Groq(api_key=os.getenv("GROQ_API_KEY"), base_url=os.getenv("GROQ_API_BASE"))
 
+ollama = OpenAI(base_url="http://localhost:11434/v1", api_key="ollama")
 
-ollama = OpenAI(base_url="http://localhost:8081/v1", api_key="ollama")
 
 def get_response_message(prompt: str, model="gpt-3.5-turbo-0613", temperature=0.1) -> str:
     response = openai.chat.completions.create(model=model,
@@ -24,6 +24,7 @@ def get_response_message_with_groq(prompt: str, model="mixtral-8x7b-32768", temp
                                             temperature=temperature,
                                             messages=[{"role": "user", "content": prompt}])
     return response.choices[0].message.content
+
 
 def get_response_message_with_chatglm(prompt: str) -> str:
     openai.base_url = "http://0.0.0.0:8000/v1"
@@ -42,14 +43,20 @@ def get_response_message_with_ollama(prompt: str, model="llama3:8b-instruct-q6_K
                                               messages=[{"role": "user", "content": prompt}])
     return response.choices[0].message.content
 
+
 def get_stream_response_ollama(prompt: str, model="llama3:8b-instruct-q6_K", temperature=0.1):
     completions = ollama.chat.completions.create(model=model,
-                                              temperature=temperature,
-                                              stream=True,
-                                              messages=[{"role": "user", "content": prompt}]
-                                              )
+                                                 temperature=temperature,
+                                                 stream=True,
+                                                 messages=[{"role": "user", "content": prompt}]
+                                                 )
     for chunk in completions:
         print(chunk.choices[0].delta.content)
+
+
+def get_response_tool(messages, tools=None, tool_choice="auto", model="llama3.1:8b-instruct-q8_0"):
+    response = ollama.chat.completions.create(model=model, messages=messages, tools=tools, tool_choice = tool_choice)
+    return response
 
 
 if __name__ == '__main__':
