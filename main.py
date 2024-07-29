@@ -59,5 +59,4 @@ if __name__ == '__main__':
 
         message = prompt_template.format(
             context="\n\n".join(response.payload.get("content") for response in results), question=prompt)
-        print("System Prompt: \n", message)
-        print(llm_model.get_response_message_with_ollama(message,"command-r:35b-v0.1-q4_K_S"))
+        print(llm_model.get_response_message_with_ollama(message,"glm4:9b-chat-q6_K"))

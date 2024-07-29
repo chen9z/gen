@@ -3,17 +3,14 @@ import os
 import dotenv
 from openai import OpenAI
 from groq import Groq
-import google.generativeai as genai
 
 dotenv.load_dotenv()
 
 openai = OpenAI(base_url=os.getenv("OPENAI_API_BASE"), api_key=os.getenv("OPENAI_API_KEY"))
 groq = Groq(api_key=os.getenv("GROQ_API_KEY"), base_url=os.getenv("GROQ_API_BASE"))
 
-genai.configure(api_key=os.getenv("GEMINI_API_KEY"))
-model = genai.GenerativeModel("gemini-pro")
 
-ollama = OpenAI(base_url="http://localhost:11434/v1", api_key="ollama")
+ollama = OpenAI(base_url="http://localhost:8081/v1", api_key="ollama")
 
 def get_response_message(prompt: str, model="gpt-3.5-turbo-0613", temperature=0.1) -> str:
     response = openai.chat.completions.create(model=model,
@@ -27,11 +24,6 @@ def get_response_message_with_groq(prompt: str, model="mixtral-8x7b-32768", temp
                                             temperature=temperature,
                                             messages=[{"role": "user", "content": prompt}])
     return response.choices[0].message.content
-
-
-def get_response_message_with_gemini(prompt: str) -> str:
-    return model.generate_content(prompt).text
-
 
 def get_response_message_with_chatglm(prompt: str) -> str:
     openai.base_url = "http://0.0.0.0:8000/v1"
@@ -50,7 +42,7 @@ def get_response_message_with_ollama(prompt: str, model="llama3:8b-instruct-q6_K
                                               messages=[{"role": "user", "content": prompt}])
     return response.choices[0].message.content
 
-def get_stream_response_ollama(prompt: str, model="llama3", temperature=0.1):
+def get_stream_response_ollama(prompt: str, model="llama3:8b-instruct-q6_K", temperature=0.1):
     completions = ollama.chat.completions.create(model=model,
                                               temperature=temperature,
                                               stream=True,
@@ -61,4 +53,5 @@ def get_stream_response_ollama(prompt: str, model="llama3", temperature=0.1):
 
 
 if __name__ == '__main__':
-    get_stream_response_ollama("why the sky is blue")
+    print(get_response_message_with_ollama("why the sky is blue", model="qwen2:7b-instruct-q6_K"))
+    print(get_response_message_with_ollama("你是谁", model="qwen2:7b-instruct-q6_K"))
