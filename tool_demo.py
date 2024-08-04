@@ -50,5 +50,5 @@ if __name__ == '__main__':
                 "name": tool_function_name,
                 "content": result
             })
-            final_response = get_response(messages=messages)
+            final_response = get_response_tool(messages=messages)
             print(final_response.choices[0].message.content)
