@@ -1,19 +1,18 @@
 import json
 
-from llm_model import get_response_tool
+from llm_model import *
 
 
 def get_weather(city: str):
     if city == "北京":
-        return {"temperature": 25, "condition": "晴朗"}
+        return str({"temperature": 25, "condition": "晴朗"})
     else:
-        return {"temperature": 30, "condition": "多云"}
+        return str({"temperature": 30, "condition": "多云"})
 
 
 if __name__ == '__main__':
     messages = [{"role": "user", "content": "上海的天气怎样？"}]
     response = get_response_tool(messages,
-                                 tool_choice="auto",
                                  tools=[
                                      {
                                          "type": "function",
@@ -51,5 +50,5 @@ if __name__ == '__main__':
                 "name": tool_function_name,
                 "content": result
             })
-            final_response = get_response_tool(messages=messages)
+            final_response = get_response(messages=messages)
             print(final_response.choices[0].message.content)

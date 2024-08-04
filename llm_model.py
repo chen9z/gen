@@ -54,8 +54,13 @@ def get_stream_response_ollama(prompt: str, model="llama3:8b-instruct-q6_K", tem
         print(chunk.choices[0].delta.content)
 
 
-def get_response_tool(messages, tools=None, tool_choice="auto", model="llama3.1:8b-instruct-q8_0"):
-    response = ollama.chat.completions.create(model=model, messages=messages, tools=tools, tool_choice = tool_choice)
+def get_response_tool(messages, tools=None, model="llama3.1:8b-instruct-q8_0"):
+    response = ollama.chat.completions.create(model=model, messages=messages, tools=tools)
+    return response
+
+
+def get_response(messages, model="llama3.1:8b-instruct-q8_0"):
+    response = ollama.chat.completions.create(model=model, messages=messages)
     return response
 
 
