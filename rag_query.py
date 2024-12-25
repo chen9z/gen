@@ -49,5 +49,6 @@ class QueryIndex:
 
     def query(self, collection_name: str, queries: Union[str, List[str]], limit=10) -> List[ScoredPoint]:
         q_embeddings = self.encoder.encode(instruction + queries, normalize_embeddings=True)
+
         query_result = self.vector_client.search(collection_name, q_embeddings, limit=limit)
         return query_result
