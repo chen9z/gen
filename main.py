@@ -14,7 +14,6 @@ prompt_template = """
 You are a large language AI assistant. You are given a user question, and please write clean, concise and accurate answer to the question.
 Your answer must be correct, accurate and written by an expert using an unbiased and professional tone. Please limit to 1024 tokens.
 Do not give any information that is not related to the question, and do not repeat. 
-Say "information is missing on" followed by the related topic, if the given context do not provide sufficient information.
 your answer must be written with **Chinese**
 
 Here are the set of contexts:
@@ -22,11 +21,16 @@ Here are the set of contexts:
 {context}
 
 Remember, don't blindly repeat the contexts verbatim.
+###
 And here is the user question:
+{question}
+
+###
+Answer:
 """
 
 if __name__ == '__main__':
-    path = "./data/design.md"
+    path = "./data/ymxt.txt"
     file_type = mimetypes.guess_type(path)[0]
     if file_type is None:
         raise ValueError("Unsupported file type")
@@ -39,18 +43,20 @@ if __name__ == '__main__':
         raise ValueError("Unsupported file type")
 
     query_model = QueryIndex(splitter)
-    connection_name = "design"
+    connection_name = "ymxt"
     query_model.encode(connection_name, path=path)
 
     while True:
         prompt = input("请输入问题：")
         if prompt == "exit":
             break
-        results = query_model.query(connection_name, prompt, 10)
+        results = query_model.query(connection_name, prompt, 10000)
+        results.sort(key=lambda x: x.score, reverse=True)
+        results = results[:20]
+        results.sort(key=lambda x: x.payload.get("start_line"))
         for result in results:
-            print(f"Results: {result} \n\n")
+            print(f"Results: {result.payload.get('start_line')} \n")
 
-        system_prompt = prompt_template.format(
-            context="\n\n".join(response.payload.get("content") for response in results))
-        print("System Prompt: \n", system_prompt)
-        print(llm_model.get_response_message_with_groq(system_prompt))
+        message = prompt_template.format(
+            context="\n\n".join(response.payload.get("content") for response in results), question=prompt)
+        print(llm_model.get_response_message_with_ollama(message,"glm4:9b-chat-q6_K"))
