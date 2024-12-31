@@ -23,3 +23,7 @@ class State:
         with self._lock:
             self._value = value
         self.semaphore.release()
+
+    @classmethod
+    def empty(cls):
+        return cls(None)
