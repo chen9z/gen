@@ -4,10 +4,10 @@ from asyncio import Lock
 from concurrent.futures.thread import ThreadPoolExecutor
 from dataclasses import dataclass
 from inspect import signature
-from lib2to3.fixes.fix_input import context
 from queue import Queue
 from typing import Optional, Any, List, Callable, Dict
 
+from flow import context
 from flow.context import Context
 from flow.state import State
 
