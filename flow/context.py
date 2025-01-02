@@ -1,6 +1,6 @@
 from queue import Queue
 from typing import Optional, Any
-from state import State
+from .state import State
 
 
 class Context:

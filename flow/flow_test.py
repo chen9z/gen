@@ -1,7 +1,8 @@
 
 from concurrent.futures import ThreadPoolExecutor
-from flow import Flow, NextTask, TaskOutput, Context
 
+from flow.context import Context
+from flow.flow import Flow, TaskOutput, NextTask
 
 flow = Flow(thread_pool_executor=ThreadPoolExecutor(max_workers=4))
 

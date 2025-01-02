@@ -7,8 +7,8 @@ from inspect import signature
 from queue import Queue
 from typing import Optional, Any, List, Callable, Dict
 
-from context import Context
-from state import State
+from .context import Context
+from .state import State
 
 __ERROR__ = "__ERROR__"
 __OUTPUT__ = "__OUTPUT__"
