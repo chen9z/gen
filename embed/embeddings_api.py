@@ -1,10 +1,9 @@
-from typing import List, Union
+from typing import List
 
 from fastapi import FastAPI, HTTPException
-from pydantic import BaseModel, Field
-
-from transformers import AutoModel
 from numpy.linalg import norm
+from pydantic import BaseModel, Field
+from transformers import AutoModel
 
 DEFAULT_MODEL = "jinaai/jina-embeddings-v2-base-code"
 cos_sim = lambda a, b: (a @ b.T) / (norm(a) * norm(b))
@@ -23,7 +22,10 @@ class EmbeddingResponse(BaseModel):
 
 
 def get_embedding(text: str) -> List[float]:
-    return model.encode(text).tolist()
+    try:
+        return model.encode(text).tolist()
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error encoding text: {str(e)}")
 
 
 app = FastAPI()
