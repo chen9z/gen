@@ -1,13 +1,14 @@
 from typing import List
 
+import numpy as np
 from fastapi import FastAPI, HTTPException
-from numpy.linalg import norm
 from pydantic import BaseModel, Field
+from sympy.physics.quantum.gate import normalized
 from transformers import AutoModel
 
-DEFAULT_MODEL = "jinaai/jina-embeddings-v2-base-code"
-cos_sim = lambda a, b: (a @ b.T) / (norm(a) * norm(b))
+DEFAULT_MODEL = "jinaai/jina-embeddings-v3"
 model = AutoModel.from_pretrained(DEFAULT_MODEL, trust_remote_code=True)
+model.to("cuda")
 
 
 class EmbeddingRequest(BaseModel):
@@ -23,7 +24,9 @@ class EmbeddingResponse(BaseModel):
 
 def get_embedding(text: str) -> List[float]:
     try:
-        return model.encode(text).tolist()
+        embedding = model.encode([text])[0]
+        normalized_embedding = embedding / np.linalg.norm(embedding)
+        return normalized_embedding.tolist()
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Error encoding text: {str(e)}")
 
