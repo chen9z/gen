@@ -5,6 +5,7 @@ description = "Add your description here"
 readme = "README.md"
 requires-python = ">=3.11"
 dependencies = [
+    "dspy>=2.5.42",
     "openai>=1.58.1",
     "qdrant-client>=1.12.2",
     "smolagents>=1.0.0",
