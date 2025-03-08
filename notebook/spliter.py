@@ -83,7 +83,7 @@ class TextSpliter(Splitter):
 
 
 if __name__ == '__main__':
-    path = "./data/ymxt.txt"
+    path = "../data/ymxt.txt"
     tokenize = lambda x: x
     splitter = TextSpliter()
     docs = splitter.split(path, 512, tokenize)

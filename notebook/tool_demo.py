@@ -1,6 +1,6 @@
 import json
 
-from llm_model import *
+from model.llm_model import *
 
 
 def get_weather(city: str):

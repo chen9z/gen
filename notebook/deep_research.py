@@ -4,8 +4,8 @@ from typing import List
 
 import aiohttp
 
-import llm_model
-from llm_model import get_ollama_response_async
+from model import llm_model
+from model.llm_model import get_ollama_response_async
 from tools import fetch_webpage_text, search_web
 
 
