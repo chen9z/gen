@@ -1,3 +1,0 @@
-# gen
-
-Clean project scaffold.
