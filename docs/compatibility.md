@@ -1,0 +1,139 @@
+# 兼容性矩阵
+
+## 项目背景
+
+- 原项目 `pi-mono` 功能完整，但以 TypeScript 生态为主；本项目目标是在 Python 技术栈中提供高兼容替代实现。
+- 团队期望统一使用 Python 工具链（`Typer` + `Pydantic v2`），降低二次开发和维护门槛。
+- 现有工作流需要保留 `pi` 的核心交互语义：会话树、工具调用循环、资源加载、命令式控制与多 provider 支持。
+
+## 项目目标
+
+- 交付可运行的 `gen` CLI，并覆盖核心模式：`interactive`、`print`、`json`（`rpc` 保持可用但非优先）。
+- 对齐高频编码场景：多轮对话、工具闭环、会话恢复/分叉、自动压缩后持续对话。
+- 保持会话与配置层高兼容（含 legacy 迁移），确保从 `pi` 迁移成本可控。
+- 提供 Python 原生扩展与资源体系，支持按项目动态装载和热重载。
+- 明确范围裁剪：不实现 `/share`、`/export`、包管理子命令、OAuth 登录流、TypeScript 扩展桥接。
+
+## 进度快照（2026-02-22）
+
+- 总体情况：`interactive/print/json` 主工作流、会话树、工具循环、OpenAI/Anthropic 双 provider 已实现核心对齐。
+- 对齐程度：日常编码场景（含 interactive 视觉+行为核心能力）为高对齐；协议边角场景为中等对齐。
+- 范围说明：本项目明确排除 `/share`、`/export`、OAuth 登录流、包管理子命令。
+
+## 已对齐（已交付）
+
+- CLI/运行时基线：`gen` 基于 `Typer`，边界契约基于 `Pydantic v2`，支持 `interactive|print|json|rpc` 模式。
+- 非交互行为：管道输入默认进入 print 模式；多消息参数顺序执行；`print/json` 在 provider 错误时返回非 0 退出码。
+- Provider：OpenAI 与 Anthropic 运行于同一 agent loop，保留 assistant 的 tool-call 历史。
+- 会话运行时：JSONL 树结构持久化；支持 v1/v2/v3 迁移；`resume/continue` 可恢复 provider/model/thinking；支持 fork/tree/compact。
+- 压缩能力：默认开启自动 compaction；支持手动 compaction；`keepRecentTokens` 预算生效。
+- 工具层：`read/write/edit/bash` + `grep/find/ls`，包含 limit、截断提示与结构化 `details`。
+- interactive UI：三栏布局（Sessions/Timeline+Live/Inspector），并支持焦点切换、键盘优先选择器、命令补全与输入历史。
+- interactive 行为对齐：`Ctrl+R/Ctrl+T` 选择器、`Tab/Shift+Tab` 焦点切换、`Left/Right` 左栏分区切换、`Up/Down/PageUp/PageDown` 导航、`1-9` 快速选择、`Esc` 取消/收起。
+- 资源体系：skills/prompt templates/themes/context 文件发现；冲突诊断；`/reload` 诊断输出；`/skill:name` 注入。
+- 扩展体系：Python 原生扩展 API（`register_tool`、`register_command`、`register_flag`、`on(event, handler)`），支持异步命令处理器。
+- 模型控制：scoped models（精确/通配/模糊）、thinking 后缀、前后向模型轮换、`models.json` 能力钳制。
+- 配置与鉴权优先级：`CLI > ENV > auth.json`；支持 XDG + 项目级配置合并。
+- Session 查询接口保持兼容并扩展可选参数：`list_sessions(limit, offset, include_current)`、`get_tree(limit, include_root)`。
+
+## 部分对齐
+
+- RPC 对齐：已支持内部驱动与会话/模型控制，但不以全量协议 1:1 对齐为当前目标。
+- 模型目录与轮换策略：当前实现满足实用兼容，但未完整复刻 `pi-mono` 的 provider 细节策略。
+- 成本核算：在 `models.json` 提供 pricing 时可计算成本；未包含外部账单对账层。
+
+## 未对齐 / 不在范围
+
+- 按计划裁剪的 slash 命令：`/share`、`/export`、`/login`、`/logout`。
+- 包管理命令族（`install/remove/update/list`）未注册。
+- OAuth 鉴权流程未实现（当前仅 API key）。
+- TypeScript 扩展兼容桥未实现（当前仅 Python 扩展 API）。
+
+## 已实现功能
+
+- `gen --mode interactive|print|json|rpc`
+- Provider 选择（`--provider`、`--model`）
+- 从 `~/.config/gen-agent/models.json` 加载全局模型目录
+- 模型能力钳制（`reasoning: false` 时 thinking 强制为 `off`）
+- 会话启动参数（`--continue`、`--resume`、`--session`、`--session-dir`、`--no-session`）
+- `resume/continue` 从会话历史恢复 provider/model/thinking
+- 管道输入默认采用非交互 print 行为（`echo ... | gen`）
+- 非交互模式下多消息参数按顺序执行
+- CLI `--models` 与 `/scoped-models` 模型范围控制
+- scoped 模型匹配支持精确/通配/模糊，可附带 `:thinking`
+- scoped pattern 的无效 thinking 后缀会告警并回退到默认值
+- 启动时 scoped 选模（未指定 `--model` 时，`--models` 选中 in-scope 默认/首个模型）
+- 模型轮换优先选择有可用鉴权的 provider/model
+- 模型+thinking 简写（`--model provider/id:thinking`、`/model provider/id:thinking`）
+- `/model` 与 `--model` 支持模糊查找（如 `haiku`）
+- 运行时资源参数（`--extension/-e`、`--skill`、`--prompt-template`、`--theme` 与 `--no-*`）
+- system prompt 控制（`--system-prompt`、`--append-system-prompt`）
+- 模型列表（`--list-models`、`--list-models-search`）
+- `--list-models` 显示 thinking 能力（`yes/no/unknown`）
+- API key 解析（`--api-key`、环境变量、auth 文件）
+- 鉴权优先级稳定并有测试：`CLI > ENV > auth.json`
+- CLI `--api-key` 仅作用于启动 provider（避免跨 provider 泄漏）
+- JSONL 会话持久化与树结构 entry
+- legacy 会话迁移兼容
+- 内置工具调用循环
+- 统一 assistant 事件映射（`start/text/thinking/toolcall/done/error`，通过 `message_update` 输出）
+- OpenAI/Anthropic 适配层保留 assistant tool-call/tool-use 历史，支持多轮工具调用
+- print 模式在 provider 错误/中止时返回非 0
+- json 模式在 provider 错误/中止时返回非 0
+- read 工具支持图片附件（`image/*`）与文本截断续读提示
+- read 工具支持通过 magic bytes 检测图片 MIME（无后缀图片可识别）
+- `grep/find/ls` 支持 limit 与截断提示，行为接近 pi 默认语义
+- `grep/find/ls` 返回结构化 tool-result `details`（limit/truncation 元数据）
+- interactive 模式支持三栏界面（左：Sessions/Tree/Tools，中：Timeline+Live，右：Inspector）
+- interactive 模式支持事件驱动流式显示（assistant text/thinking/toolcall）并在 `done/error` 收敛到时间线
+- interactive 模式支持会话选择器（`Ctrl+R`）与树节点选择器（`Ctrl+T`），支持方向键、`PageUp/PageDown`、`Enter`、数字 `1-9`、`Esc`
+- interactive 模式支持 pane 焦点切换（`Tab` / `Shift+Tab`）
+- interactive 输入支持 slash 命令候选补全提示与历史回溯（`Up/Down`）；候选可用 `Enter`/`Tab` 应用
+- interactive 输入支持 `Ctrl+U` 清空当前输入
+- interactive 支持非 picker 场景的 pane 原生选择导航：左栏（sessions/tree/tools 分区切换、选择并确认）、中栏（timeline 选择）、右栏（event 选择）
+- interactive 支持 `1-9` 在当前焦点 pane 列表中的快速选择（除输入框外）
+- interactive 中 `Esc` 在无 picker 时可收起 slash 候选并回到输入焦点
+- 自动 compaction（默认开启）
+- compaction 锚点选择遵守 `keepRecentTokens` 预算（保留最近上下文）
+- fork 会话时写入 branch summary
+- 资源热重载（`/reload`）与 skill 命令分发
+- `/reload` 返回资源/扩展诊断（冲突与装载错误）
+- `/skill:name` 展开为 skill prompt 块并进入常规 agent loop
+- 扩展注册 CLI flags（`register_flag`），支持布尔/字符串解析
+- context 文件（`AGENTS.md` / `CLAUDE.md`）注入 system prompt
+- context 发现优先级对齐：全局优先，再祖先目录；同目录优先 `AGENTS.md` 再 `CLAUDE.md`
+- skills/prompts/themes 资源冲突诊断
+- RPC 控制：模型/thinking/队列模式、tree/session 管理、compact/reload
+- RPC `reload` 返回 diagnostics；`fork_session.leafId` 非法时返回明确错误
+
+## 命令对齐
+
+当前构建支持：
+
+- `/settings`（`get` / `set`，默认写入 project scope）
+- `/model`
+- `/scoped-models`（set/clear + cycle 约束）
+- `/name`
+- `/session`
+- `/fork`（从当前/目标分支创建新会话）
+- `/tree`（列出 entries 并按 id 切换叶子）
+- `/new`
+- `/resume`（按 index/path 列表与恢复）
+- `/compact`（手动压缩）
+- `/reload`
+- `/quit`
+
+未注册/不支持：
+
+- `/share`
+- `/export`
+- `/login`
+- `/logout`
+- 包管理命令：`install/remove/update/list`
+
+## 与 pi-mono 的已知差异
+
+- 扩展运行时为 Python 原生实现，不执行 TypeScript 扩展。
+- interactive 模式在视觉主题与细节排版上仍为 Python/Textual 风格实现，未做像素级复刻。
+- 模型目录/轮换策略为精简实现，provider 特定默认逻辑未完全复刻。
+- 成本核算依赖 `models.json` 中的模型 pricing 字段。
