@@ -39,6 +39,9 @@ packages = ["src/gen_agent"]
 testpaths = ["tests"]
 pythonpath = ["src"]
 addopts = "-q"
+markers = [
+  "live: real online integration tests with external model providers",
+]
 
 [tool.ruff]
 line-length = 100
