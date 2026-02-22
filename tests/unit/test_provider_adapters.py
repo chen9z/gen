@@ -85,8 +85,15 @@ async def test_openai_provider_includes_system_prompt(monkeypatch: pytest.Monkey
             self.completions = FakeCompletions()
 
     class FakeOpenAI:
-        def __init__(self, api_key: str):
+        def __init__(
+            self,
+            api_key: str,
+            base_url: str | None = None,
+            default_headers: dict[str, str] | None = None,
+        ):
             captured["api_key"] = api_key
+            captured["base_url"] = base_url
+            captured["headers"] = default_headers
             self.chat = FakeChat()
 
     monkeypatch.setattr("gen_agent.providers.openai_provider.OpenAI", FakeOpenAI)
@@ -99,9 +106,13 @@ async def test_openai_provider_includes_system_prompt(monkeypatch: pytest.Monkey
         system_prompt="System policy",
         messages=[UserMessage(content="hello")],
         tools=[],
+        base_url="https://proxy.example.com/v1",
+        headers={"x-test": "1"},
     )
 
     await provider.complete(request)
 
     assert captured["api_key"] == "test-key"
+    assert captured["base_url"] == "https://proxy.example.com/v1"
+    assert captured["headers"] == {"x-test": "1"}
     assert captured["messages"][0] == {"role": "system", "content": "System policy"}

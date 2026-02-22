@@ -93,6 +93,7 @@ class ProviderModelDefinition(ModelBase):
     cache_read_cost_per_million: float | None = Field(default=None, alias="cacheReadCostPerMillion")
     cache_write_cost_per_million: float | None = Field(default=None, alias="cacheWriteCostPerMillion")
     headers: dict[str, str] | None = None
+    compat: dict[str, Any] | None = None
 
     model_config = ConfigDict(extra="ignore", populate_by_name=True)
 
@@ -103,6 +104,7 @@ class ProviderModelDefinition(ModelBase):
             return raw
         data = dict(raw)
         pricing = data.get("pricing") if isinstance(data.get("pricing"), dict) else {}
+        cost = data.get("cost") if isinstance(data.get("cost"), dict) else {}
 
         def _pick(*keys: str) -> Any | None:
             for key in keys:
@@ -110,6 +112,8 @@ class ProviderModelDefinition(ModelBase):
                     return data[key]
                 if key in pricing and pricing[key] is not None:
                     return pricing[key]
+                if key in cost and cost[key] is not None:
+                    return cost[key]
             return None
 
         if data.get("inputCostPerMillion") is None:
@@ -157,12 +161,34 @@ class ProviderModelDefinition(ModelBase):
         return data
 
 
+class ModelOverrideCost(ModelBase):
+    input: float | None = None
+    output: float | None = None
+    cache_read: float | None = Field(default=None, alias="cacheRead")
+    cache_write: float | None = Field(default=None, alias="cacheWrite")
+
+
+class ModelOverride(ModelBase):
+    name: str | None = None
+    reasoning: bool | None = None
+    input: list[Literal["text", "image"]] | None = None
+    cost: ModelOverrideCost | None = None
+    context_window: int | None = Field(default=None, alias="contextWindow")
+    max_tokens: int | None = Field(default=None, alias="maxTokens")
+    headers: dict[str, str] | None = None
+    compat: dict[str, Any] | None = None
+
+    model_config = ConfigDict(extra="ignore", populate_by_name=True)
+
+
 class ProviderConfigModel(ModelBase):
     base_url: str | None = Field(default=None, alias="baseUrl")
     api_key: str | None = Field(default=None, alias="apiKey")
     api: str | None = None
     headers: dict[str, str] | None = None
+    auth_header: bool = Field(default=False, alias="authHeader")
     models: list[ProviderModelDefinition] = Field(default_factory=list)
+    model_overrides: dict[str, ModelOverride] = Field(default_factory=dict, alias="modelOverrides")
     model_config = ConfigDict(extra="ignore", populate_by_name=True)
 
 

@@ -4,6 +4,7 @@ import sys
 from collections.abc import Iterable
 
 from gen_agent.core.agent_session import AgentSession
+from gen_agent.models.prompt import PromptInput
 
 
 def _message_to_text(message) -> str:
@@ -19,17 +20,39 @@ def _message_to_text(message) -> str:
     return str(message)
 
 
-async def run_print_mode(session: AgentSession, message: str | list[str] | None = None) -> int:
-    prompt_list: list[str] = []
+def _normalize_prompts(message: str | PromptInput | Iterable[str | PromptInput] | None) -> list[PromptInput]:
+    if message is None:
+        return []
+    if isinstance(message, PromptInput):
+        if message.text.strip() or message.images:
+            return [message]
+        return []
     if isinstance(message, str):
         if message.strip():
-            prompt_list = [message]
-    elif isinstance(message, Iterable):
-        prompt_list = [m for m in message if isinstance(m, str) and m.strip()]
+            return [PromptInput(text=message)]
+        return []
+    if isinstance(message, Iterable):
+        prompts: list[PromptInput] = []
+        for item in message:
+            if isinstance(item, PromptInput):
+                if item.text.strip() or item.images:
+                    prompts.append(item)
+                continue
+            if isinstance(item, str) and item.strip():
+                prompts.append(PromptInput(text=item))
+        return prompts
+    return []
+
+
+async def run_print_mode(
+    session: AgentSession,
+    message: str | PromptInput | Iterable[str | PromptInput] | None = None,
+) -> int:
+    prompt_list = _normalize_prompts(message)
 
     if prompt_list:
-        for item in prompt_list:
-            await session.prompt(item)
+        for prompt in prompt_list:
+            await session.prompt(prompt.text, images=prompt.images or None)
     else:
         await session.continue_run()
 

@@ -274,7 +274,7 @@ async def test_model_command_clamps_thinking_for_non_reasoning_model(tmp_path: P
         (
             '{'
             '"providers":{'
-            '"openai":{"models":[{"id":"gpt-4o-mini","reasoning":false}]}'
+            '"openai":{"baseUrl":"https://proxy.openai.local/v1","apiKey":"OPENAI_PROXY_KEY","api":"openai-completions","models":[{"id":"gpt-4o-mini","reasoning":false}]}'
             "}"
             "}"
         ),

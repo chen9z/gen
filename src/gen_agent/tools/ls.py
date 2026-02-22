@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import os
 from pathlib import Path
 
 from gen_agent.models.content import TextContent
@@ -20,12 +19,8 @@ class LsTool(Tool):
     def __init__(self, cwd: str):
         self.cwd = cwd
 
-    def _display_name(self, path: Path, root: Path, recursive: bool) -> str:
-        if recursive:
-            rel = path.relative_to(root)
-            token = str(rel).replace(os.sep, "/")
-        else:
-            token = path.name
+    def _display_name(self, path: Path) -> str:
+        token = path.name
         if path.is_dir():
             token += "/"
         return token
@@ -36,15 +31,12 @@ class LsTool(Tool):
             raise FileNotFoundError(f"Path not found: {params.path}")
         if not root.is_dir():
             raise NotADirectoryError(f"Not a directory: {params.path}")
-        limit = max(1, params.limit)
+        limit = max(1, params.limit or 500)
 
         lines: list[str] = []
-        if params.recursive:
-            entries = sorted(root.rglob("*"), key=lambda p: str(p).lower())
-        else:
-            entries = sorted(root.iterdir(), key=lambda p: str(p).lower())
+        entries = sorted(root.iterdir(), key=lambda p: str(p).lower())
         for entry in entries:
-            lines.append(self._display_name(entry, root, recursive=params.recursive))
+            lines.append(self._display_name(entry))
             if len(lines) >= limit:
                 break
 

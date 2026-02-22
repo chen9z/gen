@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from pydantic import Field, model_validator
+from pydantic import Field
 
 from .content import ModelBase, UserContentBlock
 
@@ -28,8 +28,8 @@ class ToolResult(ModelBase):
 
 class ReadInput(ModelBase):
     path: str
-    offset: int | None = Field(default=None, ge=1)
-    limit: int | None = Field(default=None, ge=1)
+    offset: int | None = None
+    limit: int | None = None
 
 
 class WriteInput(ModelBase):
@@ -45,7 +45,7 @@ class EditInput(ModelBase):
 
 class BashInput(ModelBase):
     command: str
-    timeout: int | None = Field(default=None, ge=1)
+    timeout: int | None = None
 
 
 class GrepInput(ModelBase):
@@ -54,25 +54,16 @@ class GrepInput(ModelBase):
     glob: str | None = None
     ignore_case: bool = Field(default=False, alias="ignoreCase")
     literal: bool = False
-    context: int = Field(default=0, ge=0)
-    limit: int = Field(default=100, ge=1)
+    context: int | None = None
+    limit: int | None = None
 
 
 class FindInput(ModelBase):
     path: str = "."
-    pattern: str | None = None
-    glob: str = "*"
-    limit: int = Field(default=1000, ge=1)
-
-    @model_validator(mode="after")
-    def _sync_pattern(self) -> "FindInput":
-        if not self.pattern:
-            self.pattern = self.glob
-        self.glob = self.pattern or self.glob
-        return self
+    pattern: str
+    limit: int | None = None
 
 
 class LsInput(ModelBase):
     path: str = "."
-    recursive: bool = False
-    limit: int = Field(default=500, ge=1)
+    limit: int | None = None

@@ -6,9 +6,37 @@ from collections.abc import Iterable
 import orjson
 
 from gen_agent.core.agent_session import AgentSession
+from gen_agent.models.prompt import PromptInput
 
 
-async def run_json_mode(session: AgentSession, message: str | list[str] | None = None) -> int:
+def _normalize_prompts(message: str | PromptInput | Iterable[str | PromptInput] | None) -> list[PromptInput]:
+    if message is None:
+        return []
+    if isinstance(message, PromptInput):
+        if message.text.strip() or message.images:
+            return [message]
+        return []
+    if isinstance(message, str):
+        if message.strip():
+            return [PromptInput(text=message)]
+        return []
+    if isinstance(message, Iterable):
+        prompts: list[PromptInput] = []
+        for item in message:
+            if isinstance(item, PromptInput):
+                if item.text.strip() or item.images:
+                    prompts.append(item)
+                continue
+            if isinstance(item, str) and item.strip():
+                prompts.append(PromptInput(text=item))
+        return prompts
+    return []
+
+
+async def run_json_mode(
+    session: AgentSession,
+    message: str | PromptInput | Iterable[str | PromptInput] | None = None,
+) -> int:
     header = session.session_manager.header
     if header:
         sys.stdout.write(orjson.dumps(header.model_dump(by_alias=True)).decode("utf-8") + "\n")
@@ -19,15 +47,10 @@ async def run_json_mode(session: AgentSession, message: str | list[str] | None =
 
     unsub = session.subscribe(on_event)
     try:
-        if isinstance(message, str) and message.strip():
-            await session.prompt(message)
-        elif isinstance(message, Iterable):
-            prompts = [m for m in message if isinstance(m, str) and m.strip()]
-            if prompts:
-                for item in prompts:
-                    await session.prompt(item)
-            else:
-                await session.continue_run()
+        prompts = _normalize_prompts(message)
+        if prompts:
+            for prompt in prompts:
+                await session.prompt(prompt.text, images=prompt.images or None)
         else:
             await session.continue_run()
     finally:

@@ -63,8 +63,10 @@ class FindTool(Tool):
         if not root.is_dir():
             raise NotADirectoryError(f"Not a directory: {params.path}")
 
-        pattern = (params.pattern or params.glob or "*").strip() or "*"
-        limit = max(1, params.limit)
+        pattern = params.pattern.strip()
+        if not pattern:
+            raise ValueError("pattern is required")
+        limit = max(1, params.limit or 1000)
         matches = self._run_fd(root, pattern, limit)
         if matches is None:
             matches = self._scan_fallback(root, pattern)

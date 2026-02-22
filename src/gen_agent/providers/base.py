@@ -16,6 +16,8 @@ class ProviderRequest:
     messages: list[AgentMessage]
     tools: list[Tool]
     thinking_level: str = "off"
+    base_url: str | None = None
+    headers: dict[str, str] | None = None
 
 
 class Provider(Protocol):

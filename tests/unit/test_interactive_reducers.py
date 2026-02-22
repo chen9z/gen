@@ -3,7 +3,7 @@ from __future__ import annotations
 from gen_agent.models.content import TextContent
 from gen_agent.models.events import MessageUpdate
 from gen_agent.models.messages import AssistantMessage
-from gen_agent.modes.interactive.reducers import (
+from gen_agent.tui.reducers import (
     apply_selected_suggestion,
     apply_input_history,
     close_picker,
@@ -19,7 +19,7 @@ from gen_agent.modes.interactive.reducers import (
     selected_suggestion,
     update_command_suggestions,
 )
-from gen_agent.modes.interactive.state import UIState
+from gen_agent.tui.state import UIState
 
 
 def test_reduce_message_update_merges_live_on_done() -> None:

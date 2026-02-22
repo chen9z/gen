@@ -50,6 +50,10 @@ class AuthStore:
         if cli_api_key and (cli_provider is None or cli_provider == provider):
             return cli_api_key
 
+        cred = self.get(provider)
+        if isinstance(cred, ApiKeyCredential) or (cred and getattr(cred, "type", None) == "api_key"):
+            return getattr(cred, "key", None)
+
         env_map = {
             "openai": "OPENAI_API_KEY",
             "anthropic": "ANTHROPIC_API_KEY",
@@ -57,9 +61,5 @@ class AuthStore:
         env_key = env_map.get(provider)
         if env_key and os.environ.get(env_key):
             return os.environ[env_key]
-
-        cred = self.get(provider)
-        if isinstance(cred, ApiKeyCredential) or (cred and getattr(cred, "type", None) == "api_key"):
-            return getattr(cred, "key", None)
 
         return None

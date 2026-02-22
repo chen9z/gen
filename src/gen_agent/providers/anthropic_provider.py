@@ -79,7 +79,11 @@ def _tool_to_anthropic(tool: Tool) -> dict[str, Any]:
 
 class AnthropicProvider:
     async def complete(self, request: ProviderRequest) -> AssistantMessage:
-        client = Anthropic(api_key=request.api_key)
+        client = Anthropic(
+            api_key=request.api_key,
+            base_url=request.base_url,
+            default_headers=request.headers,
+        )
 
         def _call() -> Any:
             return client.messages.create(
@@ -116,12 +120,12 @@ class AnthropicProvider:
             totalTokens=input_tokens + output_tokens,
             cost=UsageCost(),
         )
-        usage_model.cost = compute_usage_cost("anthropic", request.model_id, usage_model)
+        usage_model.cost = compute_usage_cost(request.provider, request.model_id, usage_model)
 
         return AssistantMessage(
             content=content_blocks,
             api="anthropic-messages",
-            provider="anthropic",
+            provider=request.provider,
             model=request.model_id,
             usage=usage_model,
             stopReason=stop_reason,

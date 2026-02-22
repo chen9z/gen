@@ -69,22 +69,14 @@ def test_tool_models_validation() -> None:
     EditInput.model_validate({"path": "a.txt", "oldText": "a", "newText": "b"})
     BashInput.model_validate({"command": "echo 1", "timeout": 3})
     GrepInput.model_validate({"pattern": "foo", "path": "."})
-    FindInput.model_validate({"glob": "*.py"})
-    LsInput.model_validate({"path": ".", "recursive": True})
+    FindInput.model_validate({"pattern": "*.py"})
+    LsInput.model_validate({"path": "."})
     ToolResult.model_validate({"content": [{"type": "text", "text": "ok"}], "details": None})
 
 
-def test_tool_models_validation_rejects_invalid_numeric_bounds() -> None:
+def test_tool_models_validation_requires_find_pattern() -> None:
     with pytest.raises(Exception):
-        ReadInput.model_validate({"path": "a.txt", "offset": 0})
-    with pytest.raises(Exception):
-        BashInput.model_validate({"command": "echo 1", "timeout": 0})
-    with pytest.raises(Exception):
-        GrepInput.model_validate({"pattern": "x", "limit": 0})
-    with pytest.raises(Exception):
-        FindInput.model_validate({"pattern": "*.py", "limit": 0})
-    with pytest.raises(Exception):
-        LsInput.model_validate({"path": ".", "limit": 0})
+        FindInput.model_validate({"path": "."})
 
 
 def test_assistant_message_usage_aliases() -> None:

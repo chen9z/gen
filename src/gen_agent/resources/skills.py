@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from html import escape
 from pathlib import Path
 
 from .frontmatter import parse_frontmatter
@@ -14,6 +15,30 @@ class Skill:
     base_dir: str
     source: str
     disable_model_invocation: bool = False
+
+
+def format_skills_for_prompt(skills: list["Skill"]) -> str:
+    visible = [skill for skill in skills if not skill.disable_model_invocation]
+    if not visible:
+        return ""
+
+    lines = [
+        "",
+        "",
+        "The following skills provide specialized instructions for specific tasks.",
+        "Use the read tool to load a skill's file when the task matches its description.",
+        "When a skill file references a relative path, resolve it against the skill directory (parent of SKILL.md / dirname of the path) and use that absolute path in tool commands.",
+        "",
+        "<available_skills>",
+    ]
+    for skill in visible:
+        lines.append("  <skill>")
+        lines.append(f"    <name>{escape(skill.name, quote=True)}</name>")
+        lines.append(f"    <description>{escape(skill.description, quote=True)}</description>")
+        lines.append(f"    <location>{escape(skill.file_path, quote=True)}</location>")
+        lines.append("  </skill>")
+    lines.append("</available_skills>")
+    return "\n".join(lines)
 
 
 def _load_skill_file(path: Path, source: str) -> tuple[Skill | None, list[str]]:

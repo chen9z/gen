@@ -89,7 +89,11 @@ def _tool_to_openai(tool: Tool) -> dict[str, Any]:
 
 class OpenAIProvider:
     async def complete(self, request: ProviderRequest) -> AssistantMessage:
-        client = OpenAI(api_key=request.api_key)
+        client = OpenAI(
+            api_key=request.api_key,
+            base_url=request.base_url,
+            default_headers=request.headers,
+        )
 
         def _call() -> Any:
             messages = _to_openai_messages(request.messages)
@@ -132,12 +136,12 @@ class OpenAIProvider:
             totalTokens=getattr(usage, "total_tokens", 0) if usage else 0,
             cost=UsageCost(),
         )
-        usage_model.cost = compute_usage_cost("openai", request.model_id, usage_model)
+        usage_model.cost = compute_usage_cost(request.provider, request.model_id, usage_model)
 
         return AssistantMessage(
             content=content_blocks,
             api="openai-chat-completions",
-            provider="openai",
+            provider=request.provider,
             model=request.model_id,
             usage=usage_model,
             stopReason=stop_reason,

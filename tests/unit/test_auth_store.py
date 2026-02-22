@@ -4,17 +4,17 @@ from gen_agent.core.auth_store import AuthStore
 from gen_agent.models.settings import ApiKeyCredential
 
 
-def test_auth_store_precedence_cli_over_env_over_file(tmp_path: Path, monkeypatch) -> None:
+def test_auth_store_precedence_cli_over_file_over_env(tmp_path: Path, monkeypatch) -> None:
     auth_file = tmp_path / "auth.json"
     store = AuthStore(path=auth_file)
     store.set("openai", ApiKeyCredential(key="file-key"))
     monkeypatch.setenv("OPENAI_API_KEY", "env-key")
 
     assert store.get_api_key("openai", cli_api_key="cli-key") == "cli-key"
-    assert store.get_api_key("openai") == "env-key"
-
-    monkeypatch.delenv("OPENAI_API_KEY", raising=False)
     assert store.get_api_key("openai") == "file-key"
+
+    store.remove("openai")
+    assert store.get_api_key("openai") == "env-key"
 
 
 def test_auth_store_cli_key_scoped_to_cli_provider(tmp_path: Path, monkeypatch) -> None:

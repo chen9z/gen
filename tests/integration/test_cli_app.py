@@ -5,6 +5,7 @@ from typer.testing import CliRunner
 import pytest
 
 from gen_agent.core.agent_session import AgentSession
+from gen_agent.models.prompt import PromptInput
 
 cli_module = importlib.import_module("gen_agent.cli.app")
 
@@ -297,6 +298,70 @@ def test_cli_file_argument_expansion(tmp_path: Path, monkeypatch) -> None:
     assert "summarize" in msg
 
 
+def test_cli_image_argument_expansion(tmp_path: Path, monkeypatch) -> None:
+    image_file = tmp_path / "pic.png"
+    image_file.write_bytes(b"\x89PNG\r\n\x1a\npayload")
+
+    captured: dict[str, object] = {}
+
+    async def fake_run_print_mode(session: AgentSession, message) -> int:
+        del session
+        captured["message"] = message
+        return 0
+
+    monkeypatch.setattr(cli_module, "run_print_mode", fake_run_print_mode)
+    runner = CliRunner()
+    result = runner.invoke(
+        cli_module.app,
+        [
+            "--mode",
+            "print",
+            "--cwd",
+            str(tmp_path),
+            "@pic.png",
+            "describe",
+        ],
+    )
+    assert result.exit_code == 0, result.output
+    prompt = captured["message"]
+    assert isinstance(prompt, PromptInput)
+    assert prompt.text == "describe"
+    assert len(prompt.images) == 1
+    assert prompt.images[0].mime_type == "image/png"
+    assert prompt.images[0].data
+
+
+def test_cli_only_image_argument_yields_prompt_input(tmp_path: Path, monkeypatch) -> None:
+    image_file = tmp_path / "noext"
+    image_file.write_bytes(b"\x89PNG\r\n\x1a\npayload")
+
+    captured: dict[str, object] = {}
+
+    async def fake_run_print_mode(session: AgentSession, message) -> int:
+        del session
+        captured["message"] = message
+        return 0
+
+    monkeypatch.setattr(cli_module, "run_print_mode", fake_run_print_mode)
+    runner = CliRunner()
+    result = runner.invoke(
+        cli_module.app,
+        [
+            "--mode",
+            "print",
+            "--cwd",
+            str(tmp_path),
+            "@noext",
+        ],
+    )
+    assert result.exit_code == 0, result.output
+    prompt = captured["message"]
+    assert isinstance(prompt, PromptInput)
+    assert prompt.text == ""
+    assert len(prompt.images) == 1
+    assert prompt.images[0].mime_type == "image/png"
+
+
 def test_cli_system_prompt_options(tmp_path: Path, monkeypatch) -> None:
     append_file = tmp_path / "append.txt"
     append_file.write_text("Append from file.", encoding="utf-8")
@@ -373,7 +438,7 @@ def test_cli_list_models_uses_models_json_catalog(tmp_path: Path) -> None:
         (
             '{'
             '"providers":{'
-            '"custom":{"models":[{"id":"alpha-1"},{"id":"beta-2"}]}'
+            '"custom":{"baseUrl":"https://custom.local/v1","apiKey":"CUSTOM_KEY","api":"openai-completions","models":[{"id":"alpha-1"},{"id":"beta-2"}]}'
             "}"
             "}"
         ),
@@ -394,6 +459,36 @@ def test_cli_list_models_uses_models_json_catalog(tmp_path: Path) -> None:
     assert "custom/beta-2" in result.output
 
 
+def test_cli_list_models_shows_merged_registry_view(tmp_path: Path) -> None:
+    xdg = tmp_path / "xdg"
+    model_file = xdg / "gen-agent" / "models.json"
+    model_file.parent.mkdir(parents=True, exist_ok=True)
+    model_file.write_text(
+        (
+            '{'
+            '"providers":{'
+            '"openai":{"baseUrl":"https://proxy.openai.local/v1","apiKey":"OPENAI_PROXY_KEY","api":"openai-completions","models":[{"id":"gpt-4o-mini","reasoning":false},{"id":"proxy-only","reasoning":false}]}'
+            "}"
+            "}"
+        ),
+        encoding="utf-8",
+    )
+    runner = CliRunner()
+    result = runner.invoke(
+        cli_module.app,
+        [
+            "--list-models",
+            "--cwd",
+            str(tmp_path),
+        ],
+        env={"XDG_CONFIG_HOME": str(xdg)},
+    )
+    assert result.exit_code == 0, result.output
+    assert "openai/gpt-4o-mini" in result.output
+    assert "openai/gpt-4o" in result.output
+    assert "openai/proxy-only" in result.output
+
+
 def test_cli_model_thinking_clamped_by_model_capability(tmp_path: Path, monkeypatch) -> None:
     xdg = tmp_path / "xdg"
     model_file = xdg / "gen-agent" / "models.json"
@@ -402,7 +497,7 @@ def test_cli_model_thinking_clamped_by_model_capability(tmp_path: Path, monkeypa
         (
             '{'
             '"providers":{'
-            '"openai":{"models":[{"id":"gpt-4o-mini","reasoning":false}]}'
+            '"openai":{"baseUrl":"https://proxy.openai.local/v1","apiKey":"OPENAI_PROXY_KEY","api":"openai-completions","models":[{"id":"gpt-4o-mini","reasoning":false}]}'
             "}"
             "}"
         ),
@@ -448,7 +543,7 @@ def test_cli_list_models_shows_thinking_capability(tmp_path: Path) -> None:
         (
             '{'
             '"providers":{'
-            '"custom":{"models":[{"id":"alpha-1","reasoning":false},{"id":"beta-2","reasoning":true}]}'
+            '"custom":{"baseUrl":"https://custom.local/v1","apiKey":"CUSTOM_KEY","api":"openai-completions","models":[{"id":"alpha-1","reasoning":false},{"id":"beta-2","reasoning":true}]}'
             "}"
             "}"
         ),

@@ -5,6 +5,7 @@ Core code is in `src/gen_agent/`:
 - `cli/` for Typer entrypoints (`gen` command wiring).
 - `core/` for session lifecycle, settings/auth/model stores, and agent loop logic.
 - `modes/` for `interactive`, `print`, `json`, and `rpc` runtime paths.
+- `tui/` for interactive Textual UI implementation (state/reducers/widgets/app).
 - `providers/`, `tools/`, `resources/`, `extensions/`, and `models/` for integrations and shared schemas.
 
 Tests are organized by scope:
@@ -52,4 +53,3 @@ Reference notes and parity tracking are in `docs/compatibility.md`.
 ## Security & Configuration Tips
 - Never commit credentials; use `OPENAI_API_KEY` and `ANTHROPIC_API_KEY` via environment or local auth config.
 - Global config lives under `~/.config/gen-agent/`; project overrides belong in `<repo>/.gen/`.
-

@@ -26,6 +26,7 @@ class BashTool(Tool):
         command = params.command
         if self.command_prefix:
             command = f"{self.command_prefix}\n{command}"
+        timeout = params.timeout if params.timeout and params.timeout > 0 else None
 
         proc = await asyncio.create_subprocess_shell(
             command,
@@ -36,7 +37,10 @@ class BashTool(Tool):
         )
 
         try:
-            raw, _ = await asyncio.wait_for(proc.communicate(), timeout=params.timeout)
+            if timeout is None:
+                raw, _ = await proc.communicate()
+            else:
+                raw, _ = await asyncio.wait_for(proc.communicate(), timeout=timeout)
         except asyncio.TimeoutError:
             proc.kill()
             timeout_raw, _ = await proc.communicate()
@@ -45,7 +49,7 @@ class BashTool(Tool):
             timeout_text = timeout_trunc["content"] or ""
             if timeout_text:
                 timeout_text += "\n\n"
-            timeout_text += f"Command timed out after {params.timeout} seconds"
+            timeout_text += f"Command timed out after {timeout} seconds"
             raise TimeoutError(timeout_text)
 
         output = (raw or b"").decode("utf-8", errors="replace")

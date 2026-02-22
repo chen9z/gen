@@ -109,9 +109,8 @@ class GrepTool(Tool):
         root = resolve_to_cwd(params.path, self.cwd)
         if not root.exists():
             raise FileNotFoundError(f"Path not found: {params.path}")
-
-        if params.limit < 1:
-            params.limit = 1
+        effective_limit = max(1, params.limit or 100)
+        effective_context = max(0, params.context or 0)
 
         if params.literal:
             regex_pattern = re.escape(params.pattern)
@@ -120,11 +119,12 @@ class GrepTool(Tool):
         regex_flags = re.IGNORECASE if params.ignore_case else 0
         regex = re.compile(regex_pattern, flags=regex_flags)
 
-        matches = self._scan_with_rg(root, params)
+        scan_params = params.model_copy(update={"limit": effective_limit, "context": effective_context})
+        matches = self._scan_with_rg(root, scan_params)
         if matches is None:
-            matches = self._scan_fallback(root, params, regex)
-        if params.limit and len(matches) > params.limit:
-            matches = matches[: params.limit]
+            matches = self._scan_fallback(root, scan_params, regex)
+        if len(matches) > effective_limit:
+            matches = matches[:effective_limit]
 
         if not matches:
             return [TextContent(text="No matches found")], None
@@ -134,9 +134,9 @@ class GrepTool(Tool):
         output = truncation["content"]
         notices: list[str] = []
         details: dict[str, object] = {}
-        if len(matches) >= params.limit:
-            notices.append(f"{params.limit} matches limit reached. Use limit={params.limit * 2} for more, or refine pattern")
-            details["matchLimitReached"] = params.limit
+        if len(matches) >= effective_limit:
+            notices.append(f"{effective_limit} matches limit reached. Use limit={effective_limit * 2} for more, or refine pattern")
+            details["matchLimitReached"] = effective_limit
         if truncation["truncated"]:
             notices.append(f"{DEFAULT_MAX_BYTES // 1024}KB limit reached")
             details["truncation"] = truncation

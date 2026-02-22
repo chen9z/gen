@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import base64
 import sys
 from pathlib import Path
 from typing import Any
@@ -10,6 +11,8 @@ import typer
 from gen_agent import __version__
 from gen_agent.core.agent_session import AgentSession
 from gen_agent.core.model_store import get_model_definition
+from gen_agent.models.content import ImageContent
+from gen_agent.models.prompt import PromptInput
 from gen_agent.modes import run_interactive_mode, run_json_mode, run_print_mode, run_rpc_mode
 from gen_agent.tools import create_all_tools
 
@@ -22,8 +25,44 @@ def _parse_tools(value: str | None) -> list[str] | None:
     return [part.strip() for part in value.split(",") if part.strip()]
 
 
-def _build_prompts_from_tokens(tokens: list[str] | None, cwd: str) -> list[str]:
+def _detect_image_mime(path: Path) -> str | None:
+    ext = path.suffix.lower()
+    if ext == ".png":
+        return "image/png"
+    if ext in {".jpg", ".jpeg"}:
+        return "image/jpeg"
+    if ext == ".gif":
+        return "image/gif"
+    if ext == ".webp":
+        return "image/webp"
+    if ext == ".bmp":
+        return "image/bmp"
+    if ext in {".tif", ".tiff"}:
+        return "image/tiff"
+
+    try:
+        head = path.read_bytes()[:32]
+    except Exception:
+        return None
+
+    if head.startswith(b"\x89PNG\r\n\x1a\n"):
+        return "image/png"
+    if head.startswith(b"\xff\xd8\xff"):
+        return "image/jpeg"
+    if head.startswith((b"GIF87a", b"GIF89a")):
+        return "image/gif"
+    if head.startswith(b"BM"):
+        return "image/bmp"
+    if len(head) >= 12 and head[:4] == b"RIFF" and head[8:12] == b"WEBP":
+        return "image/webp"
+    if head.startswith((b"II*\x00", b"MM\x00*")):
+        return "image/tiff"
+    return None
+
+
+def _build_prompt_inputs_from_tokens(tokens: list[str] | None, cwd: str) -> list[PromptInput]:
     file_parts: list[str] = []
+    images: list[ImageContent] = []
     messages: list[str] = []
     for token in tokens or []:
         if token.startswith("@") and len(token) > 1:
@@ -33,17 +72,48 @@ def _build_prompts_from_tokens(tokens: list[str] | None, cwd: str) -> list[str]:
                 path = (Path(cwd) / path).resolve()
             if not path.exists() or not path.is_file():
                 raise typer.BadParameter(f"File argument not found: {raw_path}")
+            mime = _detect_image_mime(path)
+            if mime:
+                data = base64.b64encode(path.read_bytes()).decode("utf-8")
+                images.append(ImageContent(data=data, mimeType=mime))
+                continue
             content = path.read_text(encoding="utf-8")
             file_parts.append(f'<file path="{path}">\n{content}\n</file>')
             continue
         messages.append(token)
 
+    text_prompts: list[str]
     if file_parts and messages:
         first = "\n\n".join([*file_parts, messages[0]])
-        return [first, *messages[1:]]
-    if file_parts:
-        return ["\n\n".join(file_parts)]
-    return [m for m in messages if m.strip()]
+        text_prompts = [first, *messages[1:]]
+    elif file_parts:
+        text_prompts = ["\n\n".join(file_parts)]
+    else:
+        text_prompts = [m for m in messages if m.strip()]
+
+    prompts = [PromptInput(text=text) for text in text_prompts]
+    if images:
+        if prompts:
+            prompts[0].images.extend(images)
+        else:
+            prompts = [PromptInput(text="", images=images)]
+    return prompts
+
+
+def _prompt_inputs_to_cli_payload(prompts: list[PromptInput]) -> str | list[str] | PromptInput | list[PromptInput] | None:
+    if not prompts:
+        return None
+    has_images = any(prompt.images for prompt in prompts)
+    if not has_images:
+        texts = [prompt.text for prompt in prompts if prompt.text.strip()]
+        if not texts:
+            return None
+        if len(texts) == 1:
+            return texts[0]
+        return texts
+    if len(prompts) == 1:
+        return prompts[0]
+    return prompts
 
 
 def _read_piped_stdin() -> str | None:
@@ -181,6 +251,7 @@ def _build_session(
     provider: str | None,
     model: str | None,
     api_key: str | None,
+    base_url: str | None,
     thinking: str | None,
     tools: list[str] | None,
     no_session: bool,
@@ -203,6 +274,7 @@ def _build_session(
         provider=provider,
         model=model,
         api_key=api_key,
+        base_url=base_url,
         thinking_level=thinking,
         tools=tools,
         persist_session=not no_session,
@@ -230,6 +302,7 @@ def main(
     provider: str | None = typer.Option(None, "--provider", help="Provider name"),
     model: str | None = typer.Option(None, "--model", help="Model id or provider/model"),
     api_key: str | None = typer.Option(None, "--api-key", help="API key"),
+    base_url: str | None = typer.Option(None, "--base-url", help="Provider base URL"),
     system_prompt: str | None = typer.Option(None, "--system-prompt", help="Override system prompt"),
     append_system_prompt: str | None = typer.Option(None, "--append-system-prompt", help="Append text or file content to system prompt"),
     thinking: str | None = typer.Option(None, "--thinking", help="off|minimal|low|medium|high|xhigh"),
@@ -271,6 +344,7 @@ def main(
             provider=provider,
             model=model,
             api_key=api_key,
+            base_url=base_url,
             thinking=thinking,
             tools=[] if no_tools else _parse_tools(tools),
             no_session=no_session,
@@ -322,6 +396,7 @@ def main(
         provider=provider,
         model=model,
         api_key=api_key,
+        base_url=base_url,
         thinking=thinking,
         tools=tool_names,
         no_session=no_session,
@@ -363,14 +438,8 @@ def main(
         elif resume_session:
             raise typer.BadParameter("No previous sessions found to resume")
 
-    prompts = _build_prompts_from_tokens(message, cwd)
-    prompt: str | list[str] | None
-    if not prompts:
-        prompt = None
-    elif len(prompts) == 1:
-        prompt = prompts[0]
-    else:
-        prompt = prompts
+    prompt_inputs = _build_prompt_inputs_from_tokens(message, cwd)
+    prompt = _prompt_inputs_to_cli_payload(prompt_inputs)
 
     if mode == "rpc":
         code = asyncio.run(run_rpc_mode(session_obj))

@@ -4,8 +4,8 @@ import pytest
 
 from gen_agent.models.content import TextContent
 from gen_agent.models.messages import AssistantMessage
-from gen_agent.modes.interactive.app import GenInteractiveAppV2
-from gen_agent.modes.interactive.reducers import update_command_suggestions
+from gen_agent.tui.app import GenInteractiveAppV2
+from gen_agent.tui.reducers import update_command_suggestions
 
 
 class _DummyStatic:

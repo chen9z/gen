@@ -5,7 +5,6 @@ import json
 import re
 import shlex
 from collections.abc import Callable
-from datetime import datetime
 from fnmatch import fnmatch
 from pathlib import Path
 from typing import Any
@@ -13,18 +12,25 @@ from typing import Any
 from gen_agent.core.agent_loop import run_agent_loop
 from gen_agent.core.auth_store import AuthStore
 from gen_agent.core.compaction import build_compaction_message, estimate_message_tokens, generate_compaction_summary, should_compact
-from gen_agent.core.model_store import get_model_definition, load_model_catalog
+from gen_agent.core.model_registry import ModelRegistry
 from gen_agent.core.session_manager import SessionManager
 from gen_agent.core.settings_store import load_settings, save_settings
+from gen_agent.core.system_prompt import build_system_prompt
 from gen_agent.extensions import ExtensionRunner
 from gen_agent.models.content import ImageContent, TextContent, UserContentBlock
 from gen_agent.models.events import (
+    AgentEnd,
     AgentEvent,
     AgentSessionEvent,
+    AssistantMessageEvent,
     AutoCompactionEnd,
     AutoCompactionStart,
     AutoRetryEnd,
     AutoRetryStart,
+    MessageEnd,
+    MessageStart,
+    MessageUpdate,
+    TurnEnd,
 )
 from gen_agent.models.messages import AgentMessage, AssistantMessage, UserMessage
 from gen_agent.providers import ProviderRegistry, ProviderRequest
@@ -40,6 +46,7 @@ class AgentSession:
         provider: str | None = None,
         model: str | None = None,
         api_key: str | None = None,
+        base_url: str | None = None,
         thinking_level: str | None = None,
         tools: list[str] | None = None,
         persist_session: bool = True,
@@ -62,6 +69,7 @@ class AgentSession:
 
         self.provider_registry = ProviderRegistry()
         self.auth = AuthStore()
+        self.model_registry = ModelRegistry(auth_store=self.auth)
         self.resource_loader = ResourceLoader(self.cwd)
         self.extension_runner = ExtensionRunner()
 
@@ -104,6 +112,8 @@ class AgentSession:
         self.model_id = model_id
         self.cli_api_key = api_key
         self.cli_api_key_provider = provider_from_model if api_key else None
+        self.cli_base_url = base_url
+        self.cli_base_url_provider = provider_from_model if base_url else None
         self.thinking_level = thinking_level or model_thinking or self.settings.default_thinking_level or "off"
         self._clamp_thinking_for_current_model()
         self.steering_mode = self.settings.steering_mode
@@ -124,21 +134,8 @@ class AgentSession:
         self.tool_registry = ToolRegistry(self._core_tools + extension_tools)
 
     def _available_model_catalog(self) -> dict[str, list[str]]:
-        defaults = {
-            "openai": ["gpt-4o-mini", "gpt-4.1-mini", "gpt-4o"],
-            "anthropic": ["claude-3-5-sonnet-latest", "claude-3-5-haiku-latest"],
-        }
-        configured = load_model_catalog()
-        merged: dict[str, list[str]] = {}
-        for provider, models in configured.items():
-            deduped = list(dict.fromkeys(models))
-            if deduped:
-                merged[provider] = deduped
-        for provider, models in defaults.items():
-            if provider in merged and merged[provider]:
-                continue
-            merged[provider] = list(models)
-        return merged
+        self.model_registry.refresh()
+        return self.model_registry.load_catalog()
 
     def _resolve_model_pattern(self, pattern: str, all_models: list[tuple[str, str]]) -> list[tuple[str, str]]:
         normalized = pattern.strip()
@@ -247,7 +244,14 @@ class AgentSession:
             else:
                 return pfx, model_id
 
-        provider_name = explicit_provider or self.settings.default_provider or "openai"
+        if explicit_provider:
+            provider_name = explicit_provider
+        elif self.settings.default_provider and self.settings.default_provider in catalog:
+            provider_name = self.settings.default_provider
+        elif "openai" in catalog:
+            provider_name = "openai"
+        else:
+            provider_name = next(iter(catalog), "openai")
         if model_pattern:
             candidates = (
                 [(provider_name, m) for m in catalog.get(provider_name, [])]
@@ -259,11 +263,18 @@ class AgentSession:
                 return resolved[0]
             return provider_name, model_pattern
 
-        defaults = {
-            "openai": "gpt-4o-mini",
-            "anthropic": "claude-3-5-sonnet-latest",
-        }
-        return provider_name, self.settings.default_model or defaults.get(provider_name, "gpt-4o-mini")
+        if self.settings.default_model:
+            resolved = self._resolve_model_pattern(self.settings.default_model, all_models)
+            if resolved:
+                return resolved[0]
+
+        provider_models = catalog.get(provider_name, [])
+        if provider_models:
+            return provider_name, provider_models[0]
+
+        if all_models:
+            return all_models[0]
+        return provider_name, self.settings.default_model or "gpt-4o-mini"
 
     def _split_model_thinking(self, model: str | None) -> tuple[str | None, str | None]:
         if not model or ":" not in model:
@@ -274,7 +285,7 @@ class AgentSession:
         return model, None
 
     def _model_supports_reasoning(self, provider: str, model_id: str) -> bool:
-        definition = get_model_definition(provider, model_id)
+        definition = self.model_registry.get_model_definition(provider, model_id)
         if definition is None:
             return True
         if definition.reasoning is False:
@@ -312,6 +323,29 @@ class AgentSession:
                 pass
         for listener in list(self._listeners):
             listener(event)
+
+    def _build_aborted_assistant(self, message: str = "Request was aborted") -> AssistantMessage:
+        return AssistantMessage(
+            content=[],
+            provider=self.provider_name,
+            model=self.model_id,
+            stopReason="aborted",
+            errorMessage=message,
+        )
+
+    def _emit_aborted_turn(self, assistant: AssistantMessage) -> None:
+        self._emit(MessageStart(message=assistant))
+        self._emit(MessageUpdate(message=assistant, assistantMessageEvent=AssistantMessageEvent(type="start")))
+        self._emit(
+            MessageUpdate(
+                message=assistant,
+                assistantMessageEvent=AssistantMessageEvent(type="error", error=assistant.error_message or "aborted"),
+            )
+        )
+        self._emit(MessageUpdate(message=assistant, assistantMessageEvent=AssistantMessageEvent(type="done")))
+        self._emit(MessageEnd(message=assistant))
+        self._emit(TurnEnd(message=assistant, toolResults=[]))
+        self._emit(AgentEnd(messages=[assistant]))
 
     def get_messages(self) -> list[AgentMessage]:
         return self.session_manager.build_context().messages
@@ -372,52 +406,48 @@ class AgentSession:
 
     def _build_system_prompt(self) -> str:
         context_files = self.resource_loader.state.context_files
-        skills = [s for s in self.resource_loader.state.skills if not s.disable_model_invocation]
-        lines = [self._system_prompt_override or "You are a coding assistant."]
-
-        if context_files:
-            lines.append("")
-            lines.append("# Project Context")
-            lines.append("")
-            lines.append("Project-specific instructions and guidelines:")
-            lines.append("")
-            for path, content in context_files:
-                lines.append(f"## {path}")
-                lines.append("")
-                lines.append(content)
-                lines.append("")
-
-        if skills:
-            lines.append("")
-            lines.append("Available skills:")
-            for skill in skills:
-                lines.append(f"- {skill.name}: {skill.description} ({skill.file_path})")
-
-        if self._append_system_prompt:
-            lines.append("")
-            lines.append(self._append_system_prompt)
-
-        lines.append("")
-        lines.append(f"Current date and time: {datetime.now().astimezone().strftime('%A, %B %d, %Y %H:%M:%S %Z')}")
-        lines.append(f"Current working directory: {self.cwd}")
-        return "\n".join(lines)
+        skills = self.resource_loader.state.skills
+        selected_tools = list(self.tool_registry.tools.keys())
+        return build_system_prompt(
+            cwd=self.cwd,
+            custom_prompt=self._system_prompt_override,
+            selected_tools=selected_tools,
+            append_system_prompt=self._append_system_prompt,
+            context_files=context_files,
+            skills=skills,
+        )
 
     async def _provider_call(self, messages: list[AgentMessage]) -> AssistantMessage:
-        api_key = self.auth.get_api_key(
+        self.model_registry.refresh()
+        api_key = self.model_registry.get_api_key_for_provider(
             self.provider_name,
             cli_api_key=self.cli_api_key,
             cli_provider=self.cli_api_key_provider,
         )
         if not api_key:
             return AssistantMessage(
-                content=[TextContent(text=f"No API key for provider {self.provider_name}. Set environment variable or auth file.")],
+                content=[
+                    TextContent(
+                        text=(
+                            f"No API key for provider {self.provider_name}. "
+                            "Set CLI --api-key, auth.json, environment variable, or models.json provider.apiKey."
+                        )
+                    )
+                ],
                 provider=self.provider_name,
                 model=self.model_id,
                 stopReason="error",
                 errorMessage="missing_api_key",
             )
 
-        provider = self.provider_registry.get(self.provider_name)
+        runtime_model = self.model_registry.find_model(self.provider_name, self.model_id)
+        resolved_base_url = runtime_model.base_url if runtime_model else None
+        if self.cli_base_url and self.cli_base_url_provider == self.provider_name:
+            resolved_base_url = self.cli_base_url
+        resolved_headers = runtime_model.headers if runtime_model else None
+
+        transport_provider = self.model_registry.resolve_transport_provider(self.provider_name, self.model_id)
+        provider = self.provider_registry.get(transport_provider)
         tools = list(self.tool_registry.tools.values())
         request = ProviderRequest(
             provider=self.provider_name,
@@ -427,6 +457,8 @@ class AgentSession:
             messages=messages,
             tools=tools,
             thinking_level=self.thinking_level,
+            base_url=resolved_base_url,
+            headers=resolved_headers,
         )
         return await provider.complete(request)
 
@@ -436,7 +468,7 @@ class AgentSession:
     def _models_with_auth(self, models: list[tuple[str, str, str | None]]) -> list[tuple[str, str, str | None]]:
         out: list[tuple[str, str, str | None]] = []
         for provider, model, thinking in models:
-            key = self.auth.get_api_key(
+            key = self.model_registry.get_api_key_for_provider(
                 provider,
                 cli_api_key=self.cli_api_key,
                 cli_provider=self.cli_api_key_provider,
@@ -908,6 +940,10 @@ class AgentSession:
                     get_steering_messages=self._dequeue_steering,
                     get_follow_up_messages=self._dequeue_follow_up,
                 )
+            except asyncio.CancelledError:
+                aborted = self._build_aborted_assistant()
+                self._emit_aborted_turn(aborted)
+                return [aborted]
             except Exception as exc:
                 if attempt >= max_retries:
                     self._emit(AutoRetryEnd(success=False, attempt=attempt, finalError=str(exc)))

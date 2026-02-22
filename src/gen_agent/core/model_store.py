@@ -5,6 +5,7 @@ import json
 from gen_agent.models.content import Usage, UsageCost
 from gen_agent.core.paths import models_path
 from gen_agent.models.settings import ModelConfigModel, ProviderModelDefinition
+from gen_agent.core.model_registry import ModelRegistry
 
 
 def load_model_config() -> ModelConfigModel:
@@ -22,24 +23,13 @@ def load_model_config() -> ModelConfigModel:
 
 
 def load_model_catalog() -> dict[str, list[str]]:
-    config = load_model_config()
-    catalog: dict[str, list[str]] = {}
-    for provider, cfg in config.providers.items():
-        ids = [item.id for item in cfg.models if item.id]
-        if ids:
-            catalog[provider] = ids
-    return catalog
+    registry = ModelRegistry()
+    return registry.load_catalog()
 
 
 def get_model_definition(provider: str, model_id: str) -> ProviderModelDefinition | None:
-    config = load_model_config()
-    provider_cfg = config.providers.get(provider)
-    if not provider_cfg:
-        return None
-    for model in provider_cfg.models:
-        if model.id == model_id:
-            return model
-    return None
+    registry = ModelRegistry()
+    return registry.get_model_definition(provider, model_id)
 
 
 def _cost_for_tokens(tokens: int, price_per_million: float | None) -> float:

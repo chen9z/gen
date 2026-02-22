@@ -17,7 +17,7 @@ class FakeProvider:
             return AssistantMessage(
                 provider=request.provider,
                 model=request.model_id,
-                content=[ToolCallContent(id="call_1", name="ls", arguments={"path": ".", "recursive": False})],
+                content=[ToolCallContent(id="call_1", name="ls", arguments={"path": "."})],
                 stopReason="toolUse",
             )
         return AssistantMessage(

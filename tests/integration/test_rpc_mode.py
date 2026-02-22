@@ -1,3 +1,7 @@
+import asyncio
+import json
+import threading
+
 import pytest
 
 from gen_agent.core.agent_session import AgentSession
@@ -18,6 +22,38 @@ class PlainProvider:
             content=[TextContent(text="rpc-ok")],
             stopReason="stop",
         )
+
+
+class SlowProvider:
+    def __init__(self) -> None:
+        self.calls = 0
+
+    async def complete(self, request):
+        self.calls += 1
+        await asyncio.sleep(10)
+        return AssistantMessage(
+            provider=request.provider,
+            model=request.model_id,
+            content=[TextContent(text="slow-ok")],
+            stopReason="stop",
+        )
+
+
+class _BlockingStdin:
+    def __init__(self, first_line: str) -> None:
+        self._first_line = first_line
+        self._sent = False
+        self._release = threading.Event()
+
+    def readline(self) -> str:
+        if not self._sent:
+            self._sent = True
+            return self._first_line + "\n"
+        self._release.wait(timeout=5)
+        return ""
+
+    def release(self) -> None:
+        self._release.set()
 
 
 @pytest.mark.asyncio
@@ -182,3 +218,74 @@ async def test_rpc_follow_up_queue_mode_affects_turn_count(tmp_path):
 
     assert calls_one_at_a_time == 3
     assert calls_all == 2
+
+
+@pytest.mark.asyncio
+async def test_rpc_abort_cancels_inflight_prompt(tmp_path):
+    session = AgentSession(
+        cwd=str(tmp_path),
+        provider="openai",
+        model="gpt-4o-mini",
+        api_key="x",
+        persist_session=False,
+    )
+    provider = SlowProvider()
+    session.provider_registry._providers["openai"] = provider
+
+    rpc = RpcMode(session)
+    output = []
+    rpc._write = lambda payload: output.append(payload)
+
+    prompt_task = asyncio.create_task(rpc._handle({"type": "prompt", "id": "p1", "message": "hello"}))
+    await asyncio.sleep(0.05)
+    await rpc._handle({"type": "abort", "id": "a1"})
+    await asyncio.wait_for(prompt_task, timeout=2)
+
+    abort_response = next(item for item in output if item.get("command") == "abort")
+    prompt_response = next(item for item in output if item.get("command") == "prompt")
+    assert abort_response["success"] is True
+    assert prompt_response["success"] is True
+
+    last_assistant = next((m for m in reversed(session.get_messages()) if getattr(m, "role", "") == "assistant"), None)
+    assert last_assistant is not None
+    assert last_assistant.stop_reason == "aborted"
+    assert last_assistant.error_message == "Request was aborted"
+    assert provider.calls == 1
+
+
+@pytest.mark.asyncio
+async def test_rpc_run_nonblocking_stdin_allows_prompt_response(tmp_path, monkeypatch):
+    session = AgentSession(
+        cwd=str(tmp_path),
+        provider="openai",
+        model="gpt-4o-mini",
+        api_key="x",
+        persist_session=False,
+    )
+    provider = PlainProvider()
+    session.provider_registry._providers["openai"] = provider
+
+    rpc = RpcMode(session)
+    output = []
+    rpc._write = lambda payload: output.append(payload)
+
+    fake_stdin = _BlockingStdin(json.dumps({"type": "prompt", "id": "p1", "message": "hello"}, ensure_ascii=False))
+    monkeypatch.setattr("gen_agent.modes.rpc_mode.sys.stdin", fake_stdin)
+
+    run_task = asyncio.create_task(rpc.run())
+    try:
+        for _ in range(60):
+            if any(
+                item.get("type") == "response" and item.get("command") == "prompt" and item.get("id") == "p1"
+                for item in output
+            ):
+                break
+            await asyncio.sleep(0.05)
+        else:
+            raise AssertionError("Did not receive prompt response while waiting for stdin")
+    finally:
+        fake_stdin.release()
+
+    code = await asyncio.wait_for(run_task, timeout=2)
+    assert code == 0
+    assert provider.calls == 1
