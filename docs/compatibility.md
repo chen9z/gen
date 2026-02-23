@@ -112,6 +112,7 @@
 - RPC 控制：模型/thinking/队列模式、tree/session 管理、compact/reload
 - RPC `abort` 可中止进行中的 `prompt/continue` 执行并产出 `aborted` stop reason
 - RPC `reload` 返回 diagnostics；`fork_session.leafId` 非法时返回明确错误
+- live 集成测试默认跳过，需显式使用 `pytest --live` 启用（避免日常单测被在线调用拖慢）
 
 ## 命令对齐
 

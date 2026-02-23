@@ -5,7 +5,7 @@ import pytest
 from gen_agent.models.content import TextContent, ToolCallContent
 from gen_agent.models.messages import AssistantMessage, ToolResultMessage, UserMessage
 from gen_agent.providers.base import ProviderRequest
-from gen_agent.providers.anthropic_provider import _to_anthropic_messages
+from gen_agent.providers.anthropic_provider import AnthropicProvider, _to_anthropic_messages
 from gen_agent.providers.openai_provider import OpenAIProvider, _to_openai_messages
 
 
@@ -116,3 +116,47 @@ async def test_openai_provider_includes_system_prompt(monkeypatch: pytest.Monkey
     assert captured["base_url"] == "https://proxy.example.com/v1"
     assert captured["headers"] == {"x-test": "1"}
     assert captured["messages"][0] == {"role": "system", "content": "System policy"}
+
+
+@pytest.mark.asyncio
+async def test_anthropic_provider_coerces_none_usage_tokens(monkeypatch: pytest.MonkeyPatch) -> None:
+    class FakeMessages:
+        def create(self, **_kwargs):
+            return SimpleNamespace(
+                content=[SimpleNamespace(type="text", text="ok")],
+                usage=SimpleNamespace(
+                    input_tokens=10,
+                    output_tokens=5,
+                    cache_read_input_tokens=None,
+                    cache_creation_input_tokens=None,
+                ),
+            )
+
+    class FakeAnthropic:
+        def __init__(
+            self,
+            api_key: str,
+            base_url: str | None = None,
+            default_headers: dict[str, str] | None = None,
+        ):
+            _ = (api_key, base_url, default_headers)
+            self.messages = FakeMessages()
+
+    monkeypatch.setattr("gen_agent.providers.anthropic_provider.Anthropic", FakeAnthropic)
+
+    provider = AnthropicProvider()
+    response = await provider.complete(
+        ProviderRequest(
+            provider="anthropic",
+            model_id="MiniMax-M2.5",
+            api_key="test-key",
+            system_prompt="",
+            messages=[UserMessage(content="hello")],
+            tools=[],
+        )
+    )
+
+    assert response.usage.input == 10
+    assert response.usage.output == 5
+    assert response.usage.cache_read == 0
+    assert response.usage.cache_write == 0

@@ -13,6 +13,15 @@ from gen_agent.tools.base import Tool
 from .base import ProviderRequest
 
 
+def _coerce_usage_int(value: Any) -> int:
+    if value is None:
+        return 0
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        return 0
+
+
 def _to_anthropic_messages(messages: list[AgentMessage]) -> list[dict[str, Any]]:
     out: list[dict[str, Any]] = []
     for msg in messages:
@@ -108,10 +117,10 @@ class AnthropicProvider:
                 stop_reason = "toolUse"
 
         usage = getattr(resp, "usage", None)
-        input_tokens = getattr(usage, "input_tokens", 0) if usage else 0
-        output_tokens = getattr(usage, "output_tokens", 0) if usage else 0
-        cache_read_tokens = getattr(usage, "cache_read_input_tokens", 0) if usage else 0
-        cache_write_tokens = getattr(usage, "cache_creation_input_tokens", 0) if usage else 0
+        input_tokens = _coerce_usage_int(getattr(usage, "input_tokens", 0) if usage else 0)
+        output_tokens = _coerce_usage_int(getattr(usage, "output_tokens", 0) if usage else 0)
+        cache_read_tokens = _coerce_usage_int(getattr(usage, "cache_read_input_tokens", 0) if usage else 0)
+        cache_write_tokens = _coerce_usage_int(getattr(usage, "cache_creation_input_tokens", 0) if usage else 0)
         usage_model = Usage(
             input=input_tokens,
             output=output_tokens,

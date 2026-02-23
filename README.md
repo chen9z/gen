@@ -37,6 +37,19 @@ Python reimplementation of the `pi` coding agent, built with `Typer` + `Pydantic
 uv run gen --help
 ```
 
+## Testing
+
+```bash
+# Unit + integration (live tests are skipped by default)
+uv run pytest
+
+# Run live integration tests explicitly
+uv run pytest --live tests/integration/test_live_core_flow.py
+```
+
+Live tests read provider settings from environment variables or `<repo>/.env` (`PROVIDER`, `MODEL`,
+`BASE_URL`, `API_KEY`).
+
 ## Basic usage
 
 ```bash
