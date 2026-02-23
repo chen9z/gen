@@ -52,15 +52,19 @@ def test_rpc_models_validation() -> None:
     assert adapter.validate_python({"type": "fork_session"}).type == "fork_session"
     assert adapter.validate_python({"type": "compact"}).type == "compact"
     assert adapter.validate_python({"type": "reload"}).type == "reload"
+    assert adapter.validate_python({"type": "extension_ui_response", "id": "u1", "value": "x"}).type == "extension_ui_response"
 
     resp = RpcResponse(command="prompt", success=True)
     assert resp.success is True
 
 
 def test_settings_model_validation() -> None:
-    model = SettingsModel.model_validate({"defaultProvider": "openai", "retry": {"maxRetries": 5}})
+    model = SettingsModel.model_validate(
+        {"defaultProvider": "openai", "retry": {"maxRetries": 5}, "uiExtensionsEnabled": True}
+    )
     assert model.default_provider == "openai"
     assert model.retry.max_retries == 5
+    assert model.ui_extensions_enabled is True
 
 
 def test_tool_models_validation() -> None:

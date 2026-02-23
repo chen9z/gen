@@ -1,312 +1,209 @@
 from __future__ import annotations
 
+import asyncio
+import signal
+
 import pytest
 
-from gen_agent.models.content import TextContent
-from gen_agent.models.messages import AssistantMessage
-from gen_agent.tui.app import GenInteractiveAppV2
-from gen_agent.tui.reducers import update_command_suggestions
+from gen_agent.extensions import CustomEditorComponent
+from gen_agent.interactive.ptk_app import GenInteractiveApp, PtkExtensionUIContext, run_interactive_mode
 
 
-class _DummyStatic:
-    def __init__(self) -> None:
-        self.value = ""
-
-    def update(self, value: str) -> None:
-        self.value = value
-
-
-class _DummyRichLog:
-    def __init__(self) -> None:
-        self.lines: list[str] = []
-
-    def write(self, value: str) -> None:
-        self.lines.append(value)
-
-    def clear(self) -> None:
-        self.lines.clear()
-
-
-class _DummyInput:
-    def __init__(self) -> None:
-        self.value = ""
-        self.focused = False
-
-    def focus(self) -> None:
-        self.focused = True
-
-
-class _DummyKey:
-    def __init__(self, key: str) -> None:
-        self.key = key
-        self.stopped = False
-
-    def stop(self) -> None:
-        self.stopped = True
-
-
-class _DummyExtRunner:
+class _DummyRunner:
     def get_commands(self):
-        return {"hello": object()}
+        return {}
 
 
 class _DummySession:
     def __init__(self) -> None:
-        self._state = {
-            "provider": "openai",
-            "modelId": "gpt-4o-mini",
-            "thinkingLevel": "low",
-            "sessionName": "demo",
-            "messageCount": 3,
-            "pendingMessageCount": 0,
-            "steeringQueueCount": 0,
-            "followUpQueueCount": 0,
-        }
-        self.extension_runner = _DummyExtRunner()
-        self.available_tools = ["read", "bash", "edit"]
-        self.session_file = "/tmp/current.jsonl"
-        self.resumed_paths: list[str] = []
-        self.current_leaf: str | None = None
-        self.prompt_calls: list[str] = []
+        self.cwd = "/tmp"
+        self.extension_runner = _DummyRunner()
+        self.ui_extensions_enabled = False
+
+    def bind_ui_context(self, _context) -> None:
+        return
 
     def subscribe(self, _listener):
         return lambda: None
 
     def get_state(self):
-        return dict(self._state)
-
-    def list_sessions(self, limit: int = 20, offset: int = 0, include_current: bool = True):
-        sessions = [
-            {"path": "/tmp/current.jsonl", "messageCount": 3, "firstMessage": "current", "name": "current"},
-            {"path": "/tmp/older.jsonl", "messageCount": 5, "firstMessage": "older", "name": "older"},
-        ]
-        if not include_current:
-            sessions = [item for item in sessions if item["path"] != self.session_file]
-        if offset:
-            sessions = sessions[offset:]
-        return sessions[:limit]
-
-    def get_tree(self, limit: int | None = None, include_root: bool = False):
-        entries = [
-            {"id": "e1", "parentId": None, "type": "message", "timestamp": "t1"},
-            {"id": "e2", "parentId": "e1", "type": "message", "timestamp": "t2"},
-        ]
-        if limit is not None:
-            entries = entries[-max(1, limit) :]
-        if include_root:
-            entries = [{"id": None, "parentId": None, "type": "root", "timestamp": None}, *entries]
         return {
-            "leafId": self.current_leaf,
-            "entries": entries,
+            "provider": "openai",
+            "modelId": "gpt-4o-mini",
+            "thinkingLevel": "off",
+            "sessionName": "demo",
+            "pendingMessageCount": 0,
         }
 
-    def resume_session(self, target: str | int) -> str:
-        path = str(target)
-        self.session_file = path
-        self.resumed_paths.append(path)
-        return path
-
-    def switch_tree(self, leaf_id: str | None) -> bool:
-        self.current_leaf = leaf_id
-        return True
-
-    def cycle_model(self, direction: str = "forward"):
-        del direction
-        return {"provider": "openai", "modelId": "gpt-4.1-mini"}
-
-    def new_session(self) -> None:
-        self._state["sessionName"] = "new-session"
-
-    async def prompt(self, text: str):
-        self.prompt_calls.append(text)
-        return [
-            AssistantMessage(
-                provider="openai",
-                model="gpt-4o-mini",
-                content=[TextContent(text="final answer")],
-                stopReason="stop",
-            )
-        ]
+    async def prompt(self, _payload: str):
+        return []
 
 
-def _make_app() -> GenInteractiveAppV2:
-    app = GenInteractiveAppV2(session=_DummySession())
-    app.top_status_view = _DummyStatic()
-    app.left_view = _DummyStatic()
-    app.live_view = _DummyStatic()
-    app.timeline_view = _DummyRichLog()
-    app.right_view = _DummyStatic()
-    app.input_view = _DummyInput()
-    app._refresh_meta()
-    return app
+class _DummyApp:
+    def __init__(self) -> None:
+        self.notifies: list[tuple[str, str]] = []
+        self.status: dict[str, str | None] = {}
+        self.widgets: dict[str, tuple[list[str] | None, str]] = {}
+        self.header: list[str] | None = None
+        self.footer: list[str] | None = None
+        self.title: str | None = None
+        self.editor_text = ""
+        self.editor_component = None
+
+    def notify(self, message: str, level: str = "info") -> None:
+        self.notifies.append((message, level))
+
+    def set_status(self, key: str, text: str | None) -> None:
+        self.status[key] = text
+
+    def set_widget(self, key: str, lines: list[str] | None, placement: str = "above_editor") -> None:
+        self.widgets[key] = (lines, placement)
+
+    def set_header(self, lines: list[str] | None) -> None:
+        self.header = lines
+
+    def set_footer(self, lines: list[str] | None) -> None:
+        self.footer = lines
+
+    def set_title(self, title: str) -> None:
+        self.title = title
+
+    def get_editor_text(self) -> str:
+        return self.editor_text
+
+    def set_editor_text(self, text: str) -> None:
+        self.editor_text = text
+
+    def set_editor_component(self, component: CustomEditorComponent | None) -> None:
+        self.editor_component = component
 
 
-def test_refresh_meta_has_provider_and_thinking() -> None:
-    app = _make_app()
-    assert "provider=openai/gpt-4o-mini" in app.ui.meta_text
-    assert "thinking=low" in app.ui.meta_text
-    assert "session=demo" in app.ui.meta_text
+
+def test_ptk_extension_context_accepts_text_api() -> None:
+    app = _DummyApp()
+    ctx = PtkExtensionUIContext(app)
+
+    ctx.notify("hello", level="warning")
+    ctx.set_status("sync", "ok")
+    ctx.set_widget("w-top", ["A", "B"], placement="above_editor")
+    ctx.setWidget("w-bottom", "C", {"placement": "belowEditor"})
+    ctx.set_header("H")
+    ctx.set_footer(["F1", "F2"])
+    ctx.set_title("My title")
+    ctx.set_editor_text("seed")
+    ctx.set_editor_component(CustomEditorComponent(placeholder="p", title="t", status_hint="h"))
+
+    assert app.notifies[-1] == ("hello", "warning")
+    assert app.status["sync"] == "ok"
+    assert app.widgets["w-top"] == (["A", "B"], "above_editor")
+    assert app.widgets["w-bottom"] == (["C"], "below_editor")
+    assert app.header == ["H"]
+    assert app.footer == ["F1", "F2"]
+    assert app.title == "My title"
+    assert ctx.get_editor_text() == "seed"
+    assert isinstance(app.editor_component, CustomEditorComponent)
 
 
-def test_open_session_picker_and_confirm_selection() -> None:
-    app = _make_app()
-    app._open_picker("resume")
-    assert app.ui.picker.mode == "resume"
-    assert app.ui.picker.items
 
-    app.ui.picker.selected_index = 1
-    app._confirm_picker_selection()
+def test_ptk_extension_context_rejects_non_text_content() -> None:
+    app = _DummyApp()
+    ctx = PtkExtensionUIContext(app)
 
-    assert app.session.resumed_paths[-1] == "/tmp/older.jsonl"
-    assert app.ui.picker.mode is None
-
-
-def test_open_tree_picker_and_confirm_selection() -> None:
-    app = _make_app()
-    app._open_picker("tree")
-    assert app.ui.picker.mode == "tree"
-    assert app.ui.picker.items[0]["id"] is None
-
-    app.ui.picker.selected_index = 1
-    app._confirm_picker_selection()
-    assert app.session.current_leaf == "e1"
-    assert app.ui.picker.mode is None
-
-
-@pytest.mark.asyncio
-async def test_submit_adds_history_and_timeline() -> None:
-    app = _make_app()
-    await app._submit("hello")
-
-    assert app.ui.input_history[-1] == "hello"
-    assert any(line.startswith("You: hello") for line in app.ui.timeline_lines)
-    assert any(line.startswith("Gen:") for line in app.ui.timeline_lines)
-
-
-@pytest.mark.asyncio
-async def test_manual_compact_routes_through_submit() -> None:
-    app = _make_app()
-    await app.action_manual_compact()
-    assert app.session.prompt_calls[-1] == "/compact"
+    with pytest.raises(TypeError):
+        ctx.set_widget("w", object())
+    with pytest.raises(TypeError):
+        ctx.set_header({"x": 1})
+    with pytest.raises(TypeError):
+        ctx.set_footer(["ok", 1])
+    with pytest.raises(TypeError):
+        ctx.set_editor_component("invalid")
 
 
 @pytest.mark.asyncio
-async def test_focus_next_applies_selected_command_suggestion() -> None:
-    app = _make_app()
-    app.ui.focus = "input"
-    app.input_view.value = "/re"
-    update_command_suggestions(app.ui, app.input_view.value, app._command_pool())
-    app.ui.selection.suggestion_index = 1
+async def test_run_interactive_mode_instantiates_ptk_app(monkeypatch: pytest.MonkeyPatch) -> None:
+    called = {"value": False}
 
-    await app.action_focus_next_pane()
+    async def _fake_run(self):
+        called["value"] = True
+        return 0
 
-    assert app.input_view.value == "/resume "
-    assert app.ui.focus == "input"
+    monkeypatch.setattr("gen_agent.interactive.ptk_app.sys.stdin.isatty", lambda: True)
+    monkeypatch.setattr("gen_agent.interactive.ptk_app.sys.stdout.isatty", lambda: True)
+    monkeypatch.setattr("gen_agent.interactive.ptk_app.GenInteractiveApp.run_async", _fake_run)
 
-
-@pytest.mark.asyncio
-async def test_left_pane_key_navigation_and_enter_resume() -> None:
-    app = _make_app()
-    app.ui.focus = "left"
-    app._render_all()
-
-    down = _DummyKey("down")
-    await app.on_key(down)
-    assert app.ui.selection.session_index == 1
-    assert down.stopped is True
-
-    enter = _DummyKey("enter")
-    await app.on_key(enter)
-    assert app.session.resumed_paths[-1] == "/tmp/older.jsonl"
-    assert enter.stopped is True
+    code = await run_interactive_mode(_DummySession(), initial_message="hello")
+    assert code == 0
+    assert called["value"] is True
 
 
 @pytest.mark.asyncio
-async def test_left_pane_section_switch_and_quick_select_tree() -> None:
-    app = _make_app()
-    app.ui.focus = "left"
-    app._render_all()
+async def test_run_interactive_mode_falls_back_to_print_when_not_tty(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr("gen_agent.interactive.ptk_app.sys.stdin.isatty", lambda: False)
+    monkeypatch.setattr("gen_agent.interactive.ptk_app.sys.stdout.isatty", lambda: False)
 
-    right = _DummyKey("right")
-    await app.on_key(right)
-    assert app.ui.left_section == "tree"
-    assert right.stopped is True
+    async def _fake_print(session, message=None):
+        _ = session
+        assert message == "hello"
+        return 0
 
-    quick = _DummyKey("2")
-    await app.on_key(quick)
-    assert app.ui.selection.tree_index == 1
-    assert quick.stopped is True
-
-    enter = _DummyKey("enter")
-    await app.on_key(enter)
-    assert app.session.current_leaf == "e1"
-    assert enter.stopped is True
+    monkeypatch.setattr("gen_agent.modes.print_mode.run_print_mode", _fake_print)
+    code = await run_interactive_mode(_DummySession(), initial_message="hello")
+    assert code == 0
 
 
-@pytest.mark.asyncio
-async def test_center_pane_key_navigation_moves_timeline_selection() -> None:
-    app = _make_app()
-    app.ui.timeline_lines = ["a", "b", "c"]
-    app.ui.focus = "center"
-    app._render_all()
+def test_interactive_prompt_prefix_uses_single_style() -> None:
+    app = GenInteractiveApp(_DummySession())
+    assert app._editor_prompt_prefix() == "› "
+    assert "Ctrl+C interrupt" in app._prompt_status()
 
-    down = _DummyKey("down")
-    await app.on_key(down)
-    assert app.ui.selection.timeline_index == 1
-
-    pagedown = _DummyKey("pagedown")
-    await app.on_key(pagedown)
-    assert app.ui.selection.timeline_index == 2
+    app.set_editor_component(CustomEditorComponent(placeholder="input"))
+    assert app._editor_prompt_prefix() == "› input: "
 
 
-@pytest.mark.asyncio
-async def test_center_and_right_quick_number_selection() -> None:
-    app = _make_app()
-    app.ui.timeline_lines = ["a", "b", "c", "d"]
-    app.ui.event_lines = ["e1", "e2", "e3"]
+class _InterruptibleSession(_DummySession):
+    def __init__(self) -> None:
+        super().__init__()
+        self.started = asyncio.Event()
+        self.cancelled = False
 
-    app.ui.focus = "center"
-    app._render_all()
-    center_quick = _DummyKey("3")
-    await app.on_key(center_quick)
-    assert app.ui.selection.timeline_index == 2
-    assert center_quick.stopped is True
-
-    app.ui.focus = "right"
-    app._render_all()
-    right_quick = _DummyKey("2")
-    await app.on_key(right_quick)
-    assert app.ui.selection.event_index == 1
-    assert right_quick.stopped is True
+    async def prompt(self, _payload: str):
+        self.started.set()
+        try:
+            await asyncio.sleep(10)
+        except asyncio.CancelledError:
+            self.cancelled = True
+            return []
+        return []
 
 
 @pytest.mark.asyncio
-async def test_right_pane_key_navigation_moves_event_selection() -> None:
-    app = _make_app()
-    app.ui.event_lines = ["e1", "e2", "e3"]
-    app.ui.focus = "right"
-    app._render_all()
+async def test_submit_ctrl_c_cancels_active_run_and_restores_signal(monkeypatch: pytest.MonkeyPatch) -> None:
+    session = _InterruptibleSession()
+    app = GenInteractiveApp(session)
 
-    down = _DummyKey("down")
-    await app.on_key(down)
-    assert app.ui.selection.event_index == 1
+    current_handler = object()
+    installed: list[object] = []
+    signal_handler: dict[str, object] = {}
 
-    up = _DummyKey("up")
-    await app.on_key(up)
-    assert app.ui.selection.event_index == 0
+    def _fake_getsignal(_sig: signal.Signals):
+        return current_handler
 
+    def _fake_signal(_sig: signal.Signals, handler):
+        installed.append(handler)
+        signal_handler["value"] = handler
+        return current_handler
 
-@pytest.mark.asyncio
-async def test_escape_clears_suggestions_then_focuses_input() -> None:
-    app = _make_app()
-    app.ui.focus = "left"
-    app.input_view.value = "/re"
-    update_command_suggestions(app.ui, app.input_view.value, app._command_pool())
-    assert app.ui.command_suggestions
+    monkeypatch.setattr("gen_agent.interactive.ptk_app.signal.getsignal", _fake_getsignal)
+    monkeypatch.setattr("gen_agent.interactive.ptk_app.signal.signal", _fake_signal)
 
-    await app.action_cancel_picker()
-    assert app.ui.command_suggestions == []
-    assert app.ui.focus == "left"
+    submit_task = asyncio.create_task(app._submit("hello"))
+    await session.started.wait()
+    assert "value" in signal_handler
 
-    await app.action_cancel_picker()
-    assert app.ui.focus == "input"
+    handler = signal_handler["value"]
+    assert callable(handler)
+    handler(signal.SIGINT, None)
+
+    assert await submit_task is True
+    assert session.cancelled is True
+    assert current_handler in installed

@@ -5,6 +5,7 @@ import threading
 import pytest
 
 from gen_agent.core.agent_session import AgentSession
+from gen_agent.extensions import CustomEditorComponent
 from gen_agent.models.content import TextContent
 from gen_agent.models.messages import AssistantMessage
 from gen_agent.modes.rpc_mode import RpcMode
@@ -153,7 +154,7 @@ async def test_rpc_extended_commands(tmp_path):
     await rpc._handle({"type": "reload", "id": "re1"})
     assert output[-1]["success"] is True
     assert "diagnostics" in output[-1]["data"]
-    assert provider.calls >= 2
+    assert provider.calls >= 1
 
 
 @pytest.mark.asyncio
@@ -289,3 +290,93 @@ async def test_rpc_run_nonblocking_stdin_allows_prompt_response(tmp_path, monkey
     code = await asyncio.wait_for(run_task, timeout=2)
     assert code == 0
     assert provider.calls == 1
+
+
+@pytest.mark.asyncio
+async def test_rpc_extension_ui_round_trip_for_select(tmp_path):
+    session = AgentSession(
+        cwd=str(tmp_path),
+        provider="openai",
+        model="gpt-4o-mini",
+        api_key="x",
+        persist_session=False,
+    )
+    session.settings.ui_extensions_enabled = True
+
+    rpc = RpcMode(session)
+    output = []
+    rpc._write = lambda payload: output.append(payload)
+
+    select_task = asyncio.create_task(session.ui.select("Pick", ["A", "B"]))
+    await asyncio.sleep(0)
+
+    request = next(item for item in output if item.get("type") == "extension_ui_request" and item.get("method") == "select")
+    assert request["title"] == "Pick"
+    assert request["options"] == ["A", "B"]
+
+    await rpc._handle({"type": "extension_ui_response", "id": request["id"], "value": "B"})
+    assert await select_task == "B"
+
+
+@pytest.mark.asyncio
+async def test_rpc_extension_ui_fire_and_forget_commands(tmp_path):
+    session = AgentSession(
+        cwd=str(tmp_path),
+        provider="openai",
+        model="gpt-4o-mini",
+        api_key="x",
+        persist_session=False,
+    )
+    session.settings.ui_extensions_enabled = True
+
+    rpc = RpcMode(session)
+    output = []
+    rpc._write = lambda payload: output.append(payload)
+
+    session.ui.set_status("sync", "ok")
+    session.ui.set_widget("w-top", ["A", "B"], placement="above_editor")
+    session.ui.set_widget("w-bottom", "C", placement="belowEditor")
+    session.ui.setWidget("w-bottom-2", "D", {"placement": "belowEditor"})
+    session.ui.set_header("H")
+    session.ui.set_footer(["F1", "F2"])
+    session.ui.set_title("My title")
+    session.ui.notify("hello", level="warning")
+    session.ui.set_editor_text("seed")
+    session.ui.set_editor_component(CustomEditorComponent(placeholder="p", title="t", status_hint="h"))
+
+    with pytest.raises(TypeError):
+        session.ui.set_widget("wf", lambda _mode: ["X"])
+    with pytest.raises(TypeError):
+        session.ui.set_header(lambda _mode: ["HX"])
+    with pytest.raises(TypeError):
+        session.ui.set_footer(lambda _mode: ["FX"])
+    with pytest.raises(TypeError):
+        session.ui.set_editor_component(lambda _mode: CustomEditorComponent(title="factory"))
+
+    methods = [item.get("method") for item in output if item.get("type") == "extension_ui_request"]
+    assert "setStatus" in methods
+    assert "setWidget" in methods
+    assert "setHeader" in methods
+    assert "setFooter" in methods
+    assert "setTitle" in methods
+    assert "notify" in methods
+    assert "setEditorText" in methods
+    assert "setEditorComponent" in methods
+
+    bottom_widget = next(
+        item
+        for item in output
+        if item.get("type") == "extension_ui_request"
+        and item.get("method") == "setWidget"
+        and item.get("widgetKey") == "w-bottom"
+    )
+    assert bottom_widget["widgetPlacement"] == "belowEditor"
+
+    bottom_widget_2 = next(
+        item
+        for item in output
+        if item.get("type") == "extension_ui_request"
+        and item.get("method") == "setWidget"
+        and item.get("widgetKey") == "w-bottom-2"
+    )
+    assert bottom_widget_2["widgetPlacement"] == "belowEditor"

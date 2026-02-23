@@ -46,6 +46,7 @@ class SettingsModel(ModelBase):
     theme: str | None = None
     quiet_startup: bool = Field(default=False, alias="quietStartup")
     enable_skill_commands: bool = Field(default=True, alias="enableSkillCommands")
+    ui_extensions_enabled: bool = Field(default=False, alias="uiExtensionsEnabled")
     shell_path: str | None = Field(default=None, alias="shellPath")
     shell_command_prefix: str | None = Field(default=None, alias="shellCommandPrefix")
     packages: list[Any] = Field(default_factory=list)

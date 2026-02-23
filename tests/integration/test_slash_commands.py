@@ -296,7 +296,10 @@ async def test_model_command_clamps_thinking_for_non_reasoning_model(tmp_path: P
 
 
 @pytest.mark.asyncio
-async def test_cycle_model_prefers_providers_with_auth(tmp_path: Path):
+async def test_cycle_model_prefers_providers_with_auth(tmp_path: Path, monkeypatch):
+    monkeypatch.setenv("HOME", str(tmp_path / "home"))
+    monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path / "xdg"))
+
     session = AgentSession(
         cwd=str(tmp_path),
         provider="openai",

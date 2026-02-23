@@ -14,7 +14,7 @@
 - 提供 Python 原生扩展与资源体系，支持按项目动态装载和热重载。
 - 明确范围裁剪：暂不实现 `/changelog`、`/copy`、`/share`、`/export`、包管理子命令、OAuth 登录流、TypeScript 扩展桥接。
 
-## 进度快照（2026-02-22）
+## 进度快照（2026-02-24）
 
 - 总体情况：`interactive/print/json` 主工作流、会话树、工具循环、OpenAI/Anthropic 双 provider 已实现核心对齐。
 - 对齐程度：日常编码场景（含 interactive 视觉+行为核心能力）为高对齐；协议边角场景为中等对齐。
@@ -30,10 +30,16 @@
 - 工具层：`read/write/edit/bash` + `grep/find/ls`，包含 limit、截断提示与结构化 `details`。
 - tools schema 对齐：`find` 改为 `pattern` 必填、`ls` 收敛为 `path/limit`；其余工具参数命名与 `pi-mono` 保持一致（`oldText/newText`、`ignoreCase` 等）。
 - system prompt 对齐：采用与 `pi-mono` 一致的结构化构建流程（工具说明、按工具能力动态 guidelines、文档引导、context/skills 追加顺序、时间与 cwd 尾部注入）。
-- interactive UI：三栏布局（Sessions/Timeline+Live/Inspector），并支持焦点切换、键盘优先选择器、命令补全与输入历史。
-- interactive 行为对齐：`Ctrl+R/Ctrl+T` 选择器、`Tab/Shift+Tab` 焦点切换、`Left/Right` 左栏分区切换、`Up/Down/PageUp/PageDown` 导航、`1-9` 快速选择、`Esc` 取消/收起。
+- interactive UI：已切换到 `prompt_toolkit + Rich` 单主视图（Claude 风格），采用 Rich Live 稳态渲染，保留命令驱动交互与轻量选择器。
+- interactive 行为对齐：`Ctrl+R/Ctrl+T` 选择器、`Ctrl+L/Ctrl+P` 模型轮换、`Ctrl+N` 新会话、`Ctrl+K` 压缩、`Tab` 补全、`Up/Down` 历史、`Esc` 取消。
+- interactive 输入增强：`Ctrl-J/Alt-Enter` 多行、slash fuzzy 补全、`@` 路径补全（忽略 `.git/node_modules/.venv/dist/build` 等目录）、历史持久化（`~/.config/gen-agent/user-history/<cwd_md5>.jsonl`）。
+- interactive 流式可视化增强：assistant 文本/thinking/toolcall 增量渲染，tool execution 以 in-progress/done 块持续展示。
+- interactive 稳态渲染增强：启用 Rich Live 全屏刷新与会话窗口裁剪，避免长响应时整屏重复堆叠。
 - 资源体系：skills/prompt templates/themes/context 文件发现；冲突诊断；`/reload` 诊断输出；`/skill:name` 注入。
 - 扩展体系：Python 原生扩展 API（`register_tool`、`register_command`、`register_flag`、`on(event, handler)`），支持异步命令处理器。
+- 扩展 UI（本轮 1:1 对齐范围）：`select/confirm/input/editor`、`notify`、`setStatus`、`setWidget`、`setHeader`、`setFooter`、`setTitle`、`setEditorText/getEditorText`、`setEditorComponent` 已在 interactive/rpc 路径接入（`uiExtensionsEnabled` 控制）。
+- 扩展 UI 已收敛为纯文本语义：`setWidget/setHeader/setFooter` 仅接受 `str | list[str] | None`；`setEditorComponent` 仅接受文本编辑配置对象；不再支持组件工厂与 `dispose` 生命周期。
+- 扩展迁移文档：`/Users/chen/workspace/gen/docs/extensions-migration.md`
 - 模型控制：scoped models（精确/通配/模糊）、thinking 后缀、前后向模型轮换、`models.json` 能力钳制。
 - 配置与鉴权优先级：`CLI > auth.json > ENV > models.json(provider.apiKey)`；支持 XDG + 项目级配置合并。
 - Session 查询接口保持兼容并扩展可选参数：`list_sessions(limit, offset, include_current)`、`get_tree(limit, include_root)`。
@@ -43,6 +49,7 @@
 - RPC 对齐：已支持内部驱动与会话/模型控制，但不以全量协议 1:1 对齐为当前目标。
 - 模型目录与轮换策略：已切换为 `ModelRegistry` 驱动（内置模型 + provider override + custom models + modelOverrides 合并视图）。
 - 成本核算：在 `models.json` 提供 pricing 时可计算成本；未包含外部账单对账层。
+- Provider 调用语义：主路径切换为 `stream_complete` 真流式；`complete` 通过流式兼容适配保留。
 
 ## 未对齐 / 不在范围
 
@@ -90,15 +97,11 @@
 - read 工具支持通过 magic bytes 检测图片 MIME（无后缀图片可识别）
 - `grep/find/ls` 支持 limit 与截断提示，行为接近 pi 默认语义
 - `grep/find/ls` 返回结构化 tool-result `details`（limit/truncation 元数据）
-- interactive 模式支持三栏界面（左：Sessions/Tree/Tools，中：Timeline+Live，右：Inspector）
-- interactive 模式支持事件驱动流式显示（assistant text/thinking/toolcall）并在 `done/error` 收敛到时间线
-- interactive 模式支持会话选择器（`Ctrl+R`）与树节点选择器（`Ctrl+T`），支持方向键、`PageUp/PageDown`、`Enter`、数字 `1-9`、`Esc`
-- interactive 模式支持 pane 焦点切换（`Tab` / `Shift+Tab`）
-- interactive 输入支持 slash 命令候选补全提示与历史回溯（`Up/Down`）；候选可用 `Enter`/`Tab` 应用
-- interactive 输入支持 `Ctrl+U` 清空当前输入
-- interactive 支持非 picker 场景的 pane 原生选择导航：左栏（sessions/tree/tools 分区切换、选择并确认）、中栏（timeline 选择）、右栏（event 选择）
-- interactive 支持 `1-9` 在当前焦点 pane 列表中的快速选择（除输入框外）
-- interactive 中 `Esc` 在无 picker 时可收起 slash 候选并回到输入焦点
+- interactive 模式基于 `prompt_toolkit + Rich` 单主视图运行（无需 Textual）
+- interactive 模式支持网络级真流式渲染（provider chunk/token 到达即增量输出，Live 微批量刷新减少闪烁）
+- interactive 模式支持会话选择器（`Ctrl+R`）与树节点选择器（`Ctrl+T`）
+- interactive 输入支持 slash 命令补全（`Tab`）与历史回溯（`Up/Down`）
+- interactive 支持 `Esc` 取消 picker/dialog
 - 自动 compaction（默认开启）
 - compaction 锚点选择遵守 `keepRecentTokens` 预算（保留最近上下文）
 - fork 会话时写入 branch summary
@@ -106,12 +109,14 @@
 - `/reload` 返回资源/扩展诊断（冲突与装载错误）
 - `/skill:name` 展开为 skill prompt 块并进入常规 agent loop
 - 扩展注册 CLI flags（`register_flag`），支持布尔/字符串解析
+- `uiExtensionsEnabled` 设置项（`/settings set uiExtensionsEnabled true project`）用于启用扩展 UI 上下文桥接
 - context 文件（`AGENTS.md` / `CLAUDE.md`）注入 system prompt
 - context 发现优先级对齐：全局优先，再祖先目录；同目录优先 `AGENTS.md` 再 `CLAUDE.md`
 - skills/prompts/themes 资源冲突诊断
 - RPC 控制：模型/thinking/队列模式、tree/session 管理、compact/reload
 - RPC `abort` 可中止进行中的 `prompt/continue` 执行并产出 `aborted` stop reason
 - RPC `reload` 返回 diagnostics；`fork_session.leafId` 非法时返回明确错误
+- RPC 扩展 UI：支持输出 `extension_ui_request`，并接受 `extension_ui_response` 以完成阻塞式对话
 - live 集成测试默认跳过，需显式使用 `pytest --live` 启用（避免日常单测被在线调用拖慢）
 
 ## 命令对齐
@@ -144,6 +149,6 @@
 ## 与 pi-mono 的已知差异
 
 - 扩展运行时为 Python 原生实现，不执行 TypeScript 扩展。
-- interactive 模式在视觉主题与细节排版上仍为 Python/Textual 风格实现，未做像素级复刻。
+- interactive 模式已迁移到 PTK+Rich 单视图，不再保留 Textual 三栏实现与兼容分支。
 - 模型配置机制已对齐 `pi-mono` 的 `ModelRegistry` 语义；OAuth 登录流仍未纳入本轮范围。
 - 成本核算依赖 `models.json` 中的模型 pricing 字段。

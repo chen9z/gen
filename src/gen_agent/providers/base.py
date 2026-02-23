@@ -1,10 +1,11 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Protocol
+from typing import AsyncIterator, Protocol
 
 from gen_agent.models.messages import AgentMessage, AssistantMessage
 from gen_agent.tools.base import Tool
+from gen_agent.providers.stream_types import ProviderStreamEvent
 
 
 @dataclass
@@ -22,4 +23,7 @@ class ProviderRequest:
 
 class Provider(Protocol):
     async def complete(self, request: ProviderRequest) -> AssistantMessage:
+        ...
+
+    async def stream_complete(self, request: ProviderRequest) -> AsyncIterator[ProviderStreamEvent]:
         ...

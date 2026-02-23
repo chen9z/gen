@@ -106,13 +106,13 @@ In addition to the tools above, you may have access to other custom tools depend
 Guidelines:
 {guidelines_list}
 
-Gen documentation (read only when the user asks about gen itself, its SDK, extensions, themes, skills, or TUI):
+Gen documentation (read only when the user asks about gen itself, its SDK, extensions, themes, skills, or interactive UI):
 - Main documentation: {readme_path}
 - Additional docs: {docs_path}
 - Examples: {examples_path} (extensions, custom tools, SDK)
-- When asked about: extensions (docs/extensions.md, examples/extensions/), themes (docs/themes.md), skills (docs/skills.md), prompt templates (docs/prompt-templates.md), TUI components (docs/tui.md), keybindings (docs/keybindings.md), SDK integrations (docs/sdk.md), custom providers (docs/custom-provider.md), adding models (docs/models.md), gen packages (docs/packages.md)
+- When asked about: extensions (docs/extensions.md, docs/extensions-migration.md, examples/extensions/), themes (docs/themes.md), skills (docs/skills.md), prompt templates (docs/prompt-templates.md), interactive keybindings and modes (README.md, docs/compatibility.md), SDK integrations (docs/sdk.md), custom providers (docs/custom-provider.md), adding models (docs/models.md), gen packages (docs/packages.md)
 - When working on gen topics, read the docs and examples, and follow .md cross-references before implementing
-- Always read gen .md files completely and follow links to related docs (e.g., tui.md for TUI API details)"""
+- Always read gen .md files completely and follow links to related docs for interactive/runtime details"""
 
     prompt += append_section
     prompt += _format_project_context(context_files)

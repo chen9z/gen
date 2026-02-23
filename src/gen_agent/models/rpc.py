@@ -131,6 +131,14 @@ class ReloadCommand(ModelBase):
     id: str | None = None
 
 
+class ExtensionUiResponseCommand(ModelBase):
+    type: Literal["extension_ui_response"] = "extension_ui_response"
+    id: str
+    value: str | None = None
+    confirmed: bool | None = None
+    cancelled: bool | None = None
+
+
 RpcCommand = Annotated[
     PromptCommand
     | SteerCommand
@@ -152,7 +160,8 @@ RpcCommand = Annotated[
     | ResumeSessionCommand
     | ForkSessionCommand
     | CompactCommand
-    | ReloadCommand,
+    | ReloadCommand
+    | ExtensionUiResponseCommand,
     Field(discriminator="type"),
 ]
 

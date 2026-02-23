@@ -1,16 +1,23 @@
 from __future__ import annotations
 
-import asyncio
+from collections.abc import AsyncIterator
 from typing import Any
 
-from anthropic import Anthropic
+from anthropic import AsyncAnthropic
 
-from gen_agent.core.model_store import compute_usage_cost
-from gen_agent.models.content import TextContent, ThinkingContent, ToolCallContent, Usage, UsageCost
+from gen_agent.models.content import TextContent, ThinkingContent, ToolCallContent
+from gen_agent.models.events import AssistantMessageEvent
 from gen_agent.models.messages import AgentMessage, AssistantMessage
 from gen_agent.tools.base import Tool
 
 from .base import ProviderRequest
+from .stream_types import (
+    build_usage,
+    ProviderAssistantEvent,
+    ProviderFinalEvent,
+    ProviderStreamEvent,
+    StreamUsage,
+)
 
 
 def _coerce_usage_int(value: Any) -> int:
@@ -47,7 +54,9 @@ def _to_anthropic_messages(messages: list[AgentMessage]) -> list[dict[str, Any]]
                             }
                         )
                 out.append({"role": "user", "content": blocks})
-        elif role == "assistant":
+            continue
+
+        if role == "assistant":
             blocks = []
             for block in getattr(msg, "content"):
                 btype = getattr(block, "type", "")
@@ -58,7 +67,9 @@ def _to_anthropic_messages(messages: list[AgentMessage]) -> list[dict[str, Any]]
                 elif btype == "toolCall":
                     blocks.append({"type": "tool_use", "id": block.id, "name": block.name, "input": block.arguments})
             out.append({"role": "assistant", "content": blocks or ""})
-        elif role == "toolResult":
+            continue
+
+        if role == "toolResult":
             text = "\n".join(
                 block.text for block in getattr(msg, "content") if getattr(block, "type", "") == "text"
             )
@@ -87,27 +98,109 @@ def _tool_to_anthropic(tool: Tool) -> dict[str, Any]:
 
 
 class AnthropicProvider:
-    async def complete(self, request: ProviderRequest) -> AssistantMessage:
-        client = Anthropic(
+    async def stream_complete(self, request: ProviderRequest) -> AsyncIterator[ProviderStreamEvent]:
+        client = AsyncAnthropic(
             api_key=request.api_key,
             base_url=request.base_url,
             default_headers=request.headers,
         )
 
-        def _call() -> Any:
-            return client.messages.create(
-                model=request.model_id,
-                max_tokens=4096,
-                system=request.system_prompt,
-                messages=_to_anthropic_messages(request.messages),
-                tools=[_tool_to_anthropic(tool) for tool in request.tools] or None,
-            )
+        text_started = False
+        thinking_started = False
+        tool_started: set[int] = set()
+        text_value = ""
+        thinking_value = ""
 
-        resp = await asyncio.to_thread(_call)
+        async with client.messages.stream(
+            model=request.model_id,
+            max_tokens=4096,
+            system=request.system_prompt,
+            messages=_to_anthropic_messages(request.messages),
+            tools=[_tool_to_anthropic(tool) for tool in request.tools] or None,
+        ) as stream:
+            async for event in stream:
+                etype = getattr(event, "type", "")
+                if etype == "text":
+                    if not text_started:
+                        yield ProviderAssistantEvent(event=AssistantMessageEvent(type="start"))
+                        yield ProviderAssistantEvent(event=AssistantMessageEvent(type="text_start", contentIndex=0))
+                        text_started = True
+                    delta = getattr(event, "text", "") or ""
+                    if delta:
+                        text_value += delta
+                        yield ProviderAssistantEvent(
+                            event=AssistantMessageEvent(type="text_delta", contentIndex=0, delta=delta)
+                        )
+                    continue
+
+                if etype == "thinking":
+                    if not thinking_started:
+                        if not text_started:
+                            yield ProviderAssistantEvent(event=AssistantMessageEvent(type="start"))
+                            text_started = True
+                        yield ProviderAssistantEvent(event=AssistantMessageEvent(type="thinking_start", contentIndex=1))
+                        thinking_started = True
+                    delta = getattr(event, "thinking", "") or ""
+                    if delta:
+                        thinking_value += delta
+                        yield ProviderAssistantEvent(
+                            event=AssistantMessageEvent(type="thinking_delta", contentIndex=1, delta=delta)
+                        )
+                    continue
+
+                if etype == "content_block_start":
+                    block = getattr(event, "content_block", None)
+                    if getattr(block, "type", "") != "tool_use":
+                        continue
+                    idx = int(getattr(event, "index", 0) or 0)
+                    if idx in tool_started:
+                        continue
+                    tool_started.add(idx)
+                    if not text_started:
+                        yield ProviderAssistantEvent(event=AssistantMessageEvent(type="start"))
+                        text_started = True
+                    yield ProviderAssistantEvent(event=AssistantMessageEvent(type="toolcall_start", contentIndex=idx))
+                    name = getattr(block, "name", None)
+                    if name:
+                        yield ProviderAssistantEvent(
+                            event=AssistantMessageEvent(type="toolcall_delta", contentIndex=idx, delta=str(name))
+                        )
+                    continue
+
+                if etype == "input_json":
+                    idx = int(getattr(event, "index", 0) or 0)
+                    partial = getattr(event, "partial_json", "") or ""
+                    if partial:
+                        yield ProviderAssistantEvent(
+                            event=AssistantMessageEvent(type="toolcall_delta", contentIndex=idx, delta=partial)
+                        )
+                    continue
+
+                if etype == "content_block_stop":
+                    block = getattr(event, "content_block", None)
+                    if getattr(block, "type", "") != "tool_use":
+                        continue
+                    idx = int(getattr(event, "index", 0) or 0)
+                    yield ProviderAssistantEvent(event=AssistantMessageEvent(type="toolcall_end", contentIndex=idx))
+
+            final = await stream.get_final_message()
+
+        usage_raw = getattr(final, "usage", None)
+        input_tokens = _coerce_usage_int(getattr(usage_raw, "input_tokens", 0) if usage_raw else 0)
+        output_tokens = _coerce_usage_int(getattr(usage_raw, "output_tokens", 0) if usage_raw else 0)
+        cache_read_tokens = _coerce_usage_int(getattr(usage_raw, "cache_read_input_tokens", 0) if usage_raw else 0)
+        cache_write_tokens = _coerce_usage_int(getattr(usage_raw, "cache_creation_input_tokens", 0) if usage_raw else 0)
+        usage = StreamUsage(
+            input=input_tokens,
+            output=output_tokens,
+            cache_read=cache_read_tokens,
+            cache_write=cache_write_tokens,
+            total_tokens=input_tokens + output_tokens,
+        )
+
         content_blocks: list[TextContent | ThinkingContent | ToolCallContent] = []
         stop_reason = "stop"
-
-        for block in resp.content:
+        for block in final.content:
             if block.type == "text":
                 content_blocks.append(TextContent(text=block.text))
             elif block.type == "thinking":
@@ -116,26 +209,31 @@ class AnthropicProvider:
                 content_blocks.append(ToolCallContent(id=block.id, name=block.name, arguments=dict(block.input)))
                 stop_reason = "toolUse"
 
-        usage = getattr(resp, "usage", None)
-        input_tokens = _coerce_usage_int(getattr(usage, "input_tokens", 0) if usage else 0)
-        output_tokens = _coerce_usage_int(getattr(usage, "output_tokens", 0) if usage else 0)
-        cache_read_tokens = _coerce_usage_int(getattr(usage, "cache_read_input_tokens", 0) if usage else 0)
-        cache_write_tokens = _coerce_usage_int(getattr(usage, "cache_creation_input_tokens", 0) if usage else 0)
-        usage_model = Usage(
-            input=input_tokens,
-            output=output_tokens,
-            cacheRead=cache_read_tokens,
-            cacheWrite=cache_write_tokens,
-            totalTokens=input_tokens + output_tokens,
-            cost=UsageCost(),
-        )
-        usage_model.cost = compute_usage_cost(request.provider, request.model_id, usage_model)
+        if text_started:
+            if text_value:
+                yield ProviderAssistantEvent(event=AssistantMessageEvent(type="text_end", contentIndex=0))
+            if thinking_started:
+                yield ProviderAssistantEvent(event=AssistantMessageEvent(type="thinking_end", contentIndex=1))
+            yield ProviderAssistantEvent(event=AssistantMessageEvent(type="done"))
+        else:
+            yield ProviderAssistantEvent(event=AssistantMessageEvent(type="start"))
+            yield ProviderAssistantEvent(event=AssistantMessageEvent(type="done"))
 
-        return AssistantMessage(
+        message = AssistantMessage(
             content=content_blocks,
             api="anthropic-messages",
             provider=request.provider,
             model=request.model_id,
-            usage=usage_model,
+            usage=build_usage(request.provider, request.model_id, usage),
             stopReason=stop_reason,
         )
+        yield ProviderFinalEvent(message=message)
+
+    async def complete(self, request: ProviderRequest) -> AssistantMessage:
+        final_message: AssistantMessage | None = None
+        async for item in self.stream_complete(request):
+            if item.type == "final":
+                final_message = item.message
+        if final_message is None:
+            raise RuntimeError("Anthropic stream ended without final message")
+        return final_message

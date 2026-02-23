@@ -758,6 +758,10 @@ def test_cli_piped_stdin_defaults_to_print_mode(tmp_path: Path, monkeypatch) -> 
 
 
 def test_cli_print_mode_nonzero_on_provider_error(tmp_path: Path) -> None:
+    isolated_home = tmp_path / "home"
+    isolated_xdg = tmp_path / "xdg"
+    isolated_home.mkdir(parents=True, exist_ok=True)
+    isolated_xdg.mkdir(parents=True, exist_ok=True)
     runner = CliRunner()
     result = runner.invoke(
         cli_module.app,
@@ -771,7 +775,12 @@ def test_cli_print_mode_nonzero_on_provider_error(tmp_path: Path) -> None:
             str(tmp_path),
             "hello",
         ],
-        env={"OPENAI_API_KEY": "", "ANTHROPIC_API_KEY": ""},
+        env={
+            "OPENAI_API_KEY": "",
+            "ANTHROPIC_API_KEY": "",
+            "HOME": str(isolated_home),
+            "XDG_CONFIG_HOME": str(isolated_xdg),
+        },
     )
     assert result.exit_code == 1
     assert "No API key for provider openai" in result.output
@@ -860,6 +869,10 @@ def test_cli_models_applies_scoped_startup_model_and_thinking(tmp_path: Path, mo
         return 0
 
     monkeypatch.setattr(cli_module, "run_print_mode", fake_run_print_mode)
+    isolated_home = tmp_path / "home"
+    isolated_xdg = tmp_path / "xdg"
+    isolated_home.mkdir(parents=True, exist_ok=True)
+    isolated_xdg.mkdir(parents=True, exist_ok=True)
 
     runner = CliRunner()
     result = runner.invoke(
@@ -873,6 +886,10 @@ def test_cli_models_applies_scoped_startup_model_and_thinking(tmp_path: Path, mo
             str(tmp_path),
             "hello",
         ],
+        env={
+            "HOME": str(isolated_home),
+            "XDG_CONFIG_HOME": str(isolated_xdg),
+        },
     )
 
     assert result.exit_code == 0, result.output

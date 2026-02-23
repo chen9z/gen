@@ -1,7 +1,8 @@
 from __future__ import annotations
 
+import asyncio
 import json
-from collections.abc import Awaitable, Callable
+from collections.abc import AsyncIterator, Awaitable, Callable
 from typing import Any
 
 from gen_agent.models.content import TextContent, ThinkingContent, ToolCallContent, UserContentBlock
@@ -19,11 +20,14 @@ from gen_agent.models.events import (
     TurnStart,
 )
 from gen_agent.models.messages import AgentMessage, AssistantMessage, ToolResultMessage
+from gen_agent.providers.stream_types import ProviderStreamEvent
 
 EmitFn = Callable[[AgentEvent], None]
 ToolExec = Callable[[str, dict[str, Any]], Awaitable[tuple[list[UserContentBlock], Any, bool]]]
 ProviderCall = Callable[[list[AgentMessage]], Awaitable[AssistantMessage]]
+ProviderStreamCall = Callable[[list[AgentMessage]], AsyncIterator[ProviderStreamEvent]]
 QueuedFn = Callable[[], list[AgentMessage]]
+_STREAM_CHUNK_SIZE = 24
 
 
 def _assistant_events(assistant: AssistantMessage) -> list[AssistantMessageEvent]:
@@ -54,15 +58,75 @@ def _assistant_events(assistant: AssistantMessage) -> list[AssistantMessageEvent
     return events
 
 
+def _chunk_delta(delta: str, size: int = _STREAM_CHUNK_SIZE) -> list[str]:
+    if not delta:
+        return []
+    if len(delta) <= size:
+        return [delta]
+    return [delta[i : i + size] for i in range(0, len(delta), size)]
+
+
+async def _emit_assistant_updates(emit: EmitFn, assistant: AssistantMessage) -> None:
+    for assistant_event in _assistant_events(assistant):
+        if assistant_event.type in {"text_delta", "thinking_delta", "toolcall_delta"} and assistant_event.delta:
+            for chunk in _chunk_delta(assistant_event.delta):
+                emit(
+                    MessageUpdate(
+                        message=assistant,
+                        assistantMessageEvent=AssistantMessageEvent(
+                            type=assistant_event.type,
+                            contentIndex=assistant_event.content_index,
+                            delta=chunk,
+                        ),
+                    )
+                )
+                await asyncio.sleep(0)
+            continue
+        emit(MessageUpdate(message=assistant, assistantMessageEvent=assistant_event))
+
+
+async def _emit_streamed_assistant(
+    emit: EmitFn,
+    provider_stream_call: ProviderStreamCall,
+    messages: list[AgentMessage],
+    provider_name: str = "",
+    model_id: str = "",
+) -> AssistantMessage:
+    stream_message = AssistantMessage(content=[], provider=provider_name, model=model_id)
+    emit(MessageStart(message=stream_message))
+
+    final_message: AssistantMessage | None = None
+    async for item in provider_stream_call(messages):
+        if item.type == "assistant_event":
+            emit(MessageUpdate(message=stream_message, assistantMessageEvent=item.event))
+            continue
+        if item.type == "final":
+            final_message = item.message
+
+    if final_message is None:
+        final_message = AssistantMessage(
+            content=[TextContent(text="provider stream ended without final message")],
+            provider=provider_name,
+            model=model_id,
+            stopReason="error",
+            errorMessage="stream_missing_final_message",
+        )
+    emit(MessageEnd(message=final_message))
+    return final_message
+
+
 async def run_agent_loop(
     prompts: list[AgentMessage],
     context_messages: list[AgentMessage],
     provider_call: ProviderCall,
     exec_tool: ToolExec,
     emit: EmitFn,
+    provider_stream_call: ProviderStreamCall | None = None,
     get_steering_messages: QueuedFn | None = None,
     get_follow_up_messages: QueuedFn | None = None,
     max_turns: int = 30,
+    stream_provider: str = "",
+    stream_model: str = "",
 ) -> list[AgentMessage]:
     new_messages: list[AgentMessage] = []
     messages = list(context_messages)
@@ -96,13 +160,23 @@ async def run_agent_loop(
                     emit(MessageEnd(message=pending))
                 pending_messages = []
 
-            assistant = await provider_call(messages)
-            messages.append(assistant)
-            new_messages.append(assistant)
-            emit(MessageStart(message=assistant))
-            for assistant_event in _assistant_events(assistant):
-                emit(MessageUpdate(message=assistant, assistantMessageEvent=assistant_event))
-            emit(MessageEnd(message=assistant))
+            if provider_stream_call is None:
+                assistant = await provider_call(messages)
+                messages.append(assistant)
+                new_messages.append(assistant)
+                emit(MessageStart(message=assistant))
+                await _emit_assistant_updates(emit, assistant)
+                emit(MessageEnd(message=assistant))
+            else:
+                assistant = await _emit_streamed_assistant(
+                    emit=emit,
+                    provider_stream_call=provider_stream_call,
+                    messages=messages,
+                    provider_name=stream_provider,
+                    model_id=stream_model,
+                )
+                messages.append(assistant)
+                new_messages.append(assistant)
 
             if assistant.stop_reason in ("error", "aborted"):
                 emit(TurnEnd(message=assistant, toolResults=[]))

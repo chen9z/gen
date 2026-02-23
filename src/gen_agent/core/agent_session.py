@@ -4,7 +4,7 @@ import asyncio
 import json
 import re
 import shlex
-from collections.abc import Callable
+from collections.abc import AsyncIterator, Callable
 from fnmatch import fnmatch
 from pathlib import Path
 from typing import Any
@@ -16,7 +16,7 @@ from gen_agent.core.model_registry import ModelRegistry
 from gen_agent.core.session_manager import SessionManager
 from gen_agent.core.settings_store import load_settings, save_settings
 from gen_agent.core.system_prompt import build_system_prompt
-from gen_agent.extensions import ExtensionRunner
+from gen_agent.extensions import ExtensionRunner, ExtensionUIContext, NoOpExtensionUIContext
 from gen_agent.models.content import ImageContent, TextContent, UserContentBlock
 from gen_agent.models.events import (
     AgentEnd,
@@ -34,6 +34,7 @@ from gen_agent.models.events import (
 )
 from gen_agent.models.messages import AgentMessage, AssistantMessage, UserMessage
 from gen_agent.providers import ProviderRegistry, ProviderRequest
+from gen_agent.providers.stream_types import ProviderStreamEvent, stream_events_from_assistant
 from gen_agent.resources import ResourceLoader
 from gen_agent.resources.frontmatter import parse_frontmatter
 from gen_agent.tools import DEFAULT_TOOL_NAMES, ToolRegistry, create_all_tools
@@ -72,6 +73,7 @@ class AgentSession:
         self.model_registry = ModelRegistry(auth_store=self.auth)
         self.resource_loader = ResourceLoader(self.cwd)
         self.extension_runner = ExtensionRunner()
+        self.ui: ExtensionUIContext = NoOpExtensionUIContext()
 
         self._include_discovered_skills = not no_skills
         self._include_discovered_prompts = not no_prompt_templates
@@ -128,6 +130,16 @@ class AgentSession:
         self._steering_queue: list[AgentMessage] = []
         self._follow_up_queue: list[AgentMessage] = []
         self._sync_runtime_from_session_context()
+
+    @property
+    def ui_extensions_enabled(self) -> bool:
+        return bool(self.settings.ui_extensions_enabled)
+
+    def bind_ui_context(self, context: ExtensionUIContext | None) -> None:
+        if not self.ui_extensions_enabled or context is None:
+            self.ui = NoOpExtensionUIContext()
+            return
+        self.ui = context
 
     def _rebuild_tool_registry(self) -> None:
         extension_tools = list(self.extension_runner.get_tools().values())
@@ -461,6 +473,61 @@ class AgentSession:
             headers=resolved_headers,
         )
         return await provider.complete(request)
+
+    async def _provider_stream_call(self, messages: list[AgentMessage]) -> AsyncIterator[ProviderStreamEvent]:
+        self.model_registry.refresh()
+        api_key = self.model_registry.get_api_key_for_provider(
+            self.provider_name,
+            cli_api_key=self.cli_api_key,
+            cli_provider=self.cli_api_key_provider,
+        )
+        if not api_key:
+            missing = AssistantMessage(
+                content=[
+                    TextContent(
+                        text=(
+                            f"No API key for provider {self.provider_name}. "
+                            "Set CLI --api-key, auth.json, environment variable, or models.json provider.apiKey."
+                        )
+                    )
+                ],
+                provider=self.provider_name,
+                model=self.model_id,
+                stopReason="error",
+                errorMessage="missing_api_key",
+            )
+            async for item in stream_events_from_assistant(missing):
+                yield item
+            return
+
+        runtime_model = self.model_registry.find_model(self.provider_name, self.model_id)
+        resolved_base_url = runtime_model.base_url if runtime_model else None
+        if self.cli_base_url and self.cli_base_url_provider == self.provider_name:
+            resolved_base_url = self.cli_base_url
+        resolved_headers = runtime_model.headers if runtime_model else None
+
+        transport_provider = self.model_registry.resolve_transport_provider(self.provider_name, self.model_id)
+        provider = self.provider_registry.get(transport_provider)
+        request = ProviderRequest(
+            provider=self.provider_name,
+            model_id=self.model_id,
+            api_key=api_key,
+            system_prompt=self._build_system_prompt(),
+            messages=messages,
+            tools=list(self.tool_registry.tools.values()),
+            thinking_level=self.thinking_level,
+            base_url=resolved_base_url,
+            headers=resolved_headers,
+        )
+        stream_method = getattr(provider, "stream_complete", None)
+        if callable(stream_method):
+            async for item in stream_method(request):
+                yield item
+            return
+
+        fallback = await provider.complete(request)
+        async for item in stream_events_from_assistant(fallback):
+            yield item
 
     async def _execute_tool(self, name: str, args: dict[str, Any]) -> tuple[list[UserContentBlock], Any | None, bool]:
         return await self.tool_registry.execute(name, args)
@@ -937,8 +1004,11 @@ class AgentSession:
                     provider_call=self._provider_call,
                     exec_tool=self._execute_tool,
                     emit=self._emit,
+                    provider_stream_call=self._provider_stream_call,
                     get_steering_messages=self._dequeue_steering,
                     get_follow_up_messages=self._dequeue_follow_up,
+                    stream_provider=self.provider_name,
+                    stream_model=self.model_id,
                 )
             except asyncio.CancelledError:
                 aborted = self._build_aborted_assistant()
