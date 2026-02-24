@@ -14,11 +14,11 @@ from gen_agent.extensions import CustomEditorComponent, NoOpExtensionUIContext
 from gen_agent.models.events import AgentSessionEvent
 from gen_agent.models.messages import AssistantMessage
 
+from .blocks import LIVE_CHAR_LIMIT
 from .keymap import build_key_bindings
 from .live_view import LiveView
 from .pickers import choose_from_values, choose_session, choose_tree
 from .prompt_session import InteractivePromptSession
-from .render import LIVE_CHAR_LIMIT
 
 _BUILTIN_COMMANDS = [
     "quit",
@@ -35,10 +35,6 @@ _BUILTIN_COMMANDS = [
     "resume",
     "scoped-models",
 ]
-_PROMPT_HINT = (
-    "Enter send | Ctrl+J newline | Tab complete | Ctrl+R resume | Ctrl+T tree | "
-    "Ctrl+Y status | Ctrl+C interrupt"
-)
 
 
 def _normalize_lines(content: Any, *, field_name: str) -> list[str] | None:
@@ -184,7 +180,6 @@ class GenInteractiveApp:
         self._editor_component: CustomEditorComponent | None = None
 
         self._live_view = LiveView(session)
-        self._live_view.set_title("")
         self._prompt_session = InteractivePromptSession(
             cwd=session.cwd,
             command_provider=self.command_pool,
@@ -236,11 +231,11 @@ class GenInteractiveApp:
 
     def _editor_prompt_prefix(self) -> str:
         if self._editor_component and self._editor_component.placeholder:
-            return f"› {self._editor_component.placeholder}: "
-        return "› "
+            return f"❯ {self._editor_component.placeholder}: "
+        return "❯ "
 
     def _prompt_status(self) -> str:
-        return _PROMPT_HINT
+        return ""
 
     def _cancel_active_run(self) -> None:
         task = self._active_run_task
@@ -284,27 +279,31 @@ class GenInteractiveApp:
         async with self._run_lock:
             self._prompt_session.record_submission(payload)
             if echo_user:
-                self._live_view.add_user_prompt(payload)
+                self._live_view.print_user_prompt(payload)
 
-            stream_tick = self._live_view.stream_tick
+            self._live_view.start()
             try:
+                stream_tick = self._live_view.stream_tick
                 self._active_run_task = asyncio.create_task(self.session.prompt(payload))
                 self._install_sigint_handler()
-                result = await self._active_run_task
-            except SystemExit:
-                return False
-            except asyncio.CancelledError:
-                return True
-            except Exception as exc:
-                self._live_view.add_notice(f"error: {exc}", level="error")
+                try:
+                    result = await self._active_run_task
+                except SystemExit:
+                    return False
+                except asyncio.CancelledError:
+                    return True
+                except Exception as exc:
+                    self._live_view.add_notice(f"error: {exc}", level="error")
+                    return True
+                finally:
+                    self._active_run_task = None
+                    self._restore_sigint_handler()
+
+                if self._live_view.stream_tick == stream_tick:
+                    self._append_assistant_messages(result)
                 return True
             finally:
-                self._active_run_task = None
-                self._restore_sigint_handler()
-
-            if self._live_view.stream_tick == stream_tick:
-                self._append_assistant_messages(result)
-            return True
+                self._live_view.stop()
 
     async def open_resume_picker(self) -> None:
         selected = await choose_session(self.session)
@@ -328,7 +327,8 @@ class GenInteractiveApp:
     async def cycle_model(self, direction: str = "forward") -> None:
         data = self.session.cycle_model(direction=direction)
         self._live_view.add_notice(
-            f"Model: {data.get('provider')}/{data.get('modelId')} thinking={data.get('thinkingLevel')}",
+            f"Model: {data.get('provider')}/{data.get('modelId')} "
+            f"thinking={data.get('thinkingLevel')}",
             level="info",
         )
 
@@ -350,29 +350,30 @@ class GenInteractiveApp:
 
         self._session_unsub = self.session.subscribe(self._on_session_event)
         try:
-            with patch_stdout(raw=True):
-                self._live_view.start()
-                if self.initial_prompt:
-                    keep_running = await self._submit(self.initial_prompt)
-                    if not keep_running:
-                        return 0
+            self._live_view.print_welcome_banner()
 
-                while True:
-                    try:
+            if self.initial_prompt:
+                keep_running = await self._submit(self.initial_prompt)
+                if not keep_running:
+                    return 0
+
+            while True:
+                try:
+                    with patch_stdout(raw=True):
                         text = await self._prompt_session.prompt_async(
                             self._editor_prompt_prefix(),
                             default=self._editor_text,
                         )
-                    except EOFError:
-                        break
-                    except KeyboardInterrupt:
-                        continue
-                    finally:
-                        self._editor_text = ""
+                except EOFError:
+                    break
+                except KeyboardInterrupt:
+                    continue
+                finally:
+                    self._editor_text = ""
 
-                    keep_running = await self._submit(text)
-                    if not keep_running:
-                        break
+                keep_running = await self._submit(text)
+                if not keep_running:
+                    break
         finally:
             if self._session_unsub:
                 self._session_unsub()

@@ -6,11 +6,13 @@ from rich.console import Console
 from gen_agent.interactive.blocks import AssistantBlock, ToolRunBlock
 from gen_agent.interactive.live_view import LiveView
 from gen_agent.models.content import TextContent
-from gen_agent.models.events import AgentEnd, AgentStart, MessageUpdate, ToolExecutionEnd, ToolExecutionStart
+from gen_agent.models.events import AgentStart, MessageUpdate, ToolExecutionEnd, ToolExecutionStart
 from gen_agent.models.messages import AssistantMessage
 
 
 class _DummySession:
+    cwd = "/tmp/test"
+
     def get_state(self):
         return {
             "provider": "openai",
@@ -62,12 +64,12 @@ def test_live_view_tracks_tool_start_and_end() -> None:
     view = LiveView(_DummySession())
 
     view.on_session_event(
-        ToolExecutionStart(toolCallId="tc-1", toolName="read", args={"path": "README.md"})
+        ToolExecutionStart(toolCallId="tc-1", toolName="Read", args={"path": "README.md"})
     )
     view.on_session_event(
         ToolExecutionEnd(
             toolCallId="tc-1",
-            toolName="read",
+            toolName="Read",
             result={"content": [{"type": "text", "text": "done output"}], "details": {"ok": True}},
             isError=False,
         )
@@ -81,8 +83,9 @@ def test_live_view_tracks_tool_start_and_end() -> None:
     console = Console(record=True, force_terminal=False, width=120)
     console.print(view._build_renderable())
     rendered = console.export_text()
-    assert "● read(" in rendered
-    assert "· done output" in rendered
+    assert "Read" in rendered
+    assert "README.md" in rendered
+    assert "done output" in rendered
 
 
 def test_live_view_flush_coalesces_when_state_unchanged() -> None:
@@ -119,28 +122,6 @@ def test_live_view_clears_moon_spinner_on_first_assistant_event() -> None:
 
     view.on_session_event(MessageUpdate(message=message, assistantMessageEvent={"type": "start"}))
     assert view._mooning_spinner is None
-
-
-def test_live_view_status_still_transitions_working_ready() -> None:
-    view = LiveView(_DummySession())
-
-    view.on_session_event(AgentStart())
-    assert "status=Working" in view._build_status_line().plain
-
-    view.on_session_event(AgentEnd(messages=[]))
-    assert "status=Ready" in view._build_status_line().plain
-
-
-def test_live_view_status_line_supports_verbose_toggle() -> None:
-    view = LiveView(_DummySession())
-    short_line = view._build_status_line().plain
-    assert "provider=" not in short_line
-    assert "openai/gpt-4o-mini" in short_line
-
-    view.toggle_status_detail()
-    verbose_line = view._build_status_line().plain
-    assert "provider=openai/gpt-4o-mini" in verbose_line
-    assert "thinking=off" in verbose_line
 
 
 def test_live_view_renders_compact_thinking_and_toolcall_preview() -> None:
@@ -187,31 +168,17 @@ def test_live_view_renders_compact_thinking_and_toolcall_preview() -> None:
     console = Console(record=True, force_terminal=False, width=120)
     console.print(view._build_renderable())
     rendered = console.export_text()
-    assert "thinking:" in rendered
-    assert "tool: read(" in rendered
+    assert "💭" in rendered
+    assert "⏵" in rendered
+    assert "read" in rendered
     assert "..." in rendered
-
-
-def test_live_view_dynamic_render_entry_limit_follows_console_height() -> None:
-    console = Console(record=True, force_terminal=False, width=80, height=12)
-    view = LiveView(_DummySession(), console=console)
-    assert view._effective_render_entry_limit() == 6
-
-    for idx in range(20):
-        view.add_user_prompt(f"msg-{idx}")
-
-    output_console = Console(record=True, force_terminal=False, width=80, height=12)
-    output_console.print(view._build_renderable())
-    rendered = output_console.export_text()
-    assert "msg-19" in rendered
-    assert "msg-14" in rendered
-    assert "msg-13" not in rendered
 
 
 def test_live_view_notice_ttl_expires(monkeypatch: pytest.MonkeyPatch) -> None:
     now = {"value": 100.0}
     monkeypatch.setattr("gen_agent.interactive.live_view.time.monotonic", lambda: now["value"])
     view = LiveView(_DummySession())
+    view._live = _FakeLive()
     view.add_notice("temporary", level="info")
 
     console = Console(record=True, force_terminal=False, width=120)
@@ -246,22 +213,8 @@ def test_live_view_handles_interleaved_multi_toolcall_deltas() -> None:
     console = Console(record=True, force_terminal=False, width=120)
     console.print(view._build_renderable())
     rendered = console.export_text()
-    assert "tool: read(" in rendered
-    assert "tool: write(" in rendered
-
-
-def test_live_view_footer_interrupt_hint_is_ctrl_c() -> None:
-    view = LiveView(_DummySession())
-    console = Console(record=True, force_terminal=False, width=120)
-    console.print(view._build_renderable())
-    rendered = console.export_text()
-    assert "Ctrl+C to interrupt" in rendered
-    divider_lines = []
-    for line in rendered.splitlines():
-        stripped = line.strip()
-        if stripped and len(stripped) >= 8 and set(stripped) == {"─"}:
-            divider_lines.append(stripped)
-    assert len(divider_lines) == 1
+    assert "read" in rendered
+    assert "write" in rendered
 
 
 def test_live_view_set_widget_moves_key_between_placements() -> None:
@@ -276,3 +229,30 @@ def test_live_view_set_widget_moves_key_between_placements() -> None:
     view.set_widget("summary", None, placement="above_editor")
     assert "summary" not in view._widgets_above
     assert "summary" not in view._widgets_below
+
+
+def test_live_view_commit_prints_done_entries() -> None:
+    view = LiveView(_DummySession())
+    message = _assistant_message("hello world")
+
+    view.on_session_event(MessageUpdate(message=message, assistantMessageEvent={"type": "start"}))
+    view.on_session_event(
+        MessageUpdate(
+            message=message,
+            assistantMessageEvent={"type": "text_delta", "delta": "hello world"},
+        )
+    )
+
+    assert view._committed_count == 0
+
+    view.on_session_event(MessageUpdate(message=message, assistantMessageEvent={"type": "done"}))
+
+    console = Console(record=True, force_terminal=False, width=120)
+    view._console = console
+    view._live = _FakeLive()
+    view._commit_ready_entries()
+
+    assert view._committed_count == 1
+
+    active_entries = view._entries[view._committed_count:]
+    assert len(active_entries) == 0

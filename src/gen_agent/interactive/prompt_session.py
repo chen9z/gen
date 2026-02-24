@@ -17,9 +17,9 @@ from wcwidth import wcswidth
 from .completers import AtPathCompleter, HybridCompleter, SlashFuzzyCompleter
 from .history import HistoryStore
 
-_HINT_REQUIRED_TOKENS = ("Enter send", "Ctrl+J newline", "Ctrl+C interrupt")
-_HINT_OPTIONAL_TOKENS = ("Tab complete", "Ctrl+R resume", "Ctrl+T tree", "Ctrl+Y status")
-_HINT_SEPARATOR = " | "
+_HINT_REQUIRED_TOKENS = ("Enter send", "Esc+Enter newline", "Ctrl+C interrupt")
+_HINT_OPTIONAL_TOKENS = ("/ commands", "@ files", "Ctrl+R resume")
+_HINT_SEPARATOR = " · "
 
 
 def accept_completion_or_submit(buffer: Buffer) -> bool:
@@ -172,8 +172,4 @@ class InteractivePromptSession:
     def _bottom_toolbar(self) -> HTML:
         columns = self._toolbar_columns()
         status = escape(self._compose_toolbar_hint(columns))
-        divider = "─" * columns
-        return HTML(
-            f"<bottom-toolbar> {status} </bottom-toolbar>\n"
-            f"<bottom-toolbar>{divider}</bottom-toolbar>"
-        )
+        return HTML(f"<bottom-toolbar> {status} </bottom-toolbar>")

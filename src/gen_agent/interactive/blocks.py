@@ -1,15 +1,37 @@
 from __future__ import annotations
 
-import json
 from dataclasses import dataclass, field
 from typing import Any
 
 from rich.console import Group, RenderableType
 from rich.markdown import Markdown
+from rich.panel import Panel
 from rich.spinner import Spinner
 from rich.text import Text
 
-_FINAL_MARKDOWN_THRESHOLD = 3200
+LIVE_CHAR_LIMIT = 8000
+
+_TOOL_KEY_ARGS: dict[str, list[str]] = {
+    "Read": ["path"],
+    "Write": ["path"],
+    "Edit": ["path"],
+    "Bash": ["command"],
+    "Grep": ["pattern", "path"],
+    "Find": ["pattern", "path"],
+    "Ls": ["path"],
+}
+
+
+def _extract_tool_key_arg(name: str, args: dict[str, Any]) -> str:
+    keys = _TOOL_KEY_ARGS.get(name, [])
+    for key in keys:
+        value = args.get(key)
+        if isinstance(value, str) and value.strip():
+            return value[:60] + "..." if len(value) > 60 else value
+    for value in args.values():
+        if isinstance(value, str) and value.strip():
+            return value[:60] + "..." if len(value) > 60 else value
+    return ""
 
 
 @dataclass(slots=True)
@@ -67,30 +89,43 @@ class AssistantBlock:
 
     def render(self) -> RenderableType:
         parts: list[RenderableType] = []
-        if self.text:
-            if self.done:
-                if len(self.text) > _FINAL_MARKDOWN_THRESHOLD:
-                    parts.append(Text(self.text))
-                else:
-                    parts.append(Markdown(self.text))
-            else:
-                parts.append(Text(self.text))
-        elif not self.done:
-            parts.append(Spinner("dots", text="Gen is thinking..."))
 
         if self.thinking:
-            parts.append(Text(f"thinking: {self._single_line_preview(self.thinking)}", style="dim"))
+            if self.done:
+                parts.append(Text("💭 Thinking...", style="dim italic"))
+            else:
+                preview = self._single_line_preview(self.thinking, limit=80)
+                parts.append(Text(f"💭 {preview}", style="dim italic"))
+
+        if self.text:
+            if self.done:
+                parts.append(Markdown(self.text))
+            else:
+                parts.append(Text(self.text + "▍"))
+        elif not self.done and not self.thinking:
+            parts.append(Spinner("dots", text="Thinking..."))
+
         if self.toolcalls:
             for _index, preview in sorted(self.toolcalls.items())[-2:]:
                 name_preview = self._single_line_preview(preview.name, limit=48).strip() or "tool"
                 args_preview = self._single_line_preview(preview.args, limit=96).strip()
+                tc = Text()
+                tc.append("⏵ ", style="cyan")
+                tc.append(name_preview, style="bold")
                 if args_preview:
-                    parts.append(Text(f"tool: {name_preview}({args_preview})", style="magenta"))
-                else:
-                    parts.append(Text(f"tool: {name_preview}", style="magenta"))
+                    tc.append(f"({args_preview})", style="dim")
+                parts.append(tc)
+
         if self.error:
-            parts.append(Text(f"Error: {self.error}", style="bold red"))
-        return Group(*parts)
+            parts.append(Panel(
+                Text(self.error, style="red"),
+                border_style="red",
+                title="Error",
+                title_align="left",
+                padding=(0, 1),
+            ))
+
+        return Group(*parts) if parts else Text("")
 
 
 @dataclass(slots=True)
@@ -107,28 +142,30 @@ class ToolRunBlock:
         self.is_error = is_error
         self.result_summary = result_summary
 
-    def _args_summary(self) -> str:
-        args_text = json.dumps(self.args, ensure_ascii=False)
-        if len(args_text) > 120:
-            args_text = args_text[:117] + "..."
-        return args_text
+    def _key_arg(self) -> str:
+        return _extract_tool_key_arg(self.name, self.args)
 
     def render(self) -> RenderableType:
-        args_text = self._args_summary()
-        call = f"{self.name}({args_text})"
-        if self.status == "running":
-            spinner_text = Text()
-            spinner_text.append("● ", style="yellow")
-            spinner_text.append(call)
-            return Spinner("dots", text=spinner_text)
+        key_arg = self._key_arg()
 
-        style = "red" if self.is_error else "green"
+        if self.status == "running":
+            label = Text()
+            label.append("⏺ ", style="yellow")
+            label.append(self.name, style="bold")
+            if key_arg:
+                label.append(f"  {key_arg}", style="dim")
+            return Spinner("dots", text=label)
+
         line = Text()
-        line.append("● ", style=style)
-        line.append(call)
+        if self.is_error:
+            line.append("✗ ", style="red")
+        else:
+            line.append("✓ ", style="green")
+        line.append(self.name, style="bold")
+        if key_arg:
+            line.append(f"  {key_arg}", style="dim")
         if self.result_summary:
-            line.append(" · ", style="dim")
-            line.append(self.result_summary, style="dim")
+            line.append(f"  {self.result_summary}", style="dim")
         return line
 
 
@@ -137,7 +174,10 @@ class UserPromptBlock:
     content: str
 
     def render(self) -> RenderableType:
-        return Text(f"> {self.content}", style="bold")
+        t = Text()
+        t.append("❯ ", style="bold cyan")
+        t.append(self.content, style="bold")
+        return t
 
 
 @dataclass(slots=True)
@@ -147,4 +187,4 @@ class NoticeBlock:
 
     def render(self) -> RenderableType:
         style = {"info": "cyan", "warning": "yellow", "error": "red"}.get(self.level, "cyan")
-        return Text(f"[{self.level.upper()}] {self.content}", style=style)
+        return Text(self.content, style=style)

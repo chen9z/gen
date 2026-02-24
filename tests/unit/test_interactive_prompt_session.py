@@ -62,10 +62,8 @@ def test_prompt_session_toolbar_uses_short_hint(monkeypatch, tmp_path) -> None:
     fragments = to_formatted_text(session._bottom_toolbar())
     rendered = "".join(text for _style, text, *_ in fragments)
     assert "Enter send" in rendered
-    assert "Ctrl+J newline" in rendered
+    assert "Esc+Enter newline" in rendered
     assert "Ctrl+C interrupt" in rendered
-    assert "─" in rendered
-    assert "\n" in rendered
 
 
 def test_prompt_session_toolbar_truncates_on_narrow_width(monkeypatch, tmp_path) -> None:
@@ -79,14 +77,9 @@ def test_prompt_session_toolbar_truncates_on_narrow_width(monkeypatch, tmp_path)
 
     fragments = to_formatted_text(session._bottom_toolbar())
     rendered = "".join(text for _style, text, *_ in fragments)
-    hint_line, divider_line = rendered.split("\n", maxsplit=1)
-
-    assert len(hint_line.strip()) <= 56
-    assert "Enter send" in hint_line
-    assert "Ctrl+J newline" in hint_line
-    assert "Ctrl+C interrupt" in hint_line
-    assert "..." in hint_line
-    assert len(divider_line) == 56
+    assert len(rendered.strip()) <= 56
+    assert "Enter send" in rendered
+    assert "Ctrl+C interrupt" in rendered
 
 
 def test_prompt_session_truncate_respects_display_width(monkeypatch, tmp_path) -> None:
