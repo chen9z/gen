@@ -5,15 +5,21 @@ from html import escape
 from pathlib import Path
 
 from prompt_toolkit import PromptSession
+from prompt_toolkit.application.current import get_app_or_none
 from prompt_toolkit.buffer import Buffer, CompletionState
 from prompt_toolkit.formatted_text import HTML
 from prompt_toolkit.history import InMemoryHistory
 from prompt_toolkit.key_binding import KeyBindings, KeyBindingsBase, merge_key_bindings
 from prompt_toolkit.shortcuts import CompleteStyle
 from prompt_toolkit.styles import Style
+from wcwidth import wcswidth
 
 from .completers import AtPathCompleter, HybridCompleter, SlashFuzzyCompleter
 from .history import HistoryStore
+
+_HINT_REQUIRED_TOKENS = ("Enter send", "Ctrl+J newline", "Ctrl+C interrupt")
+_HINT_OPTIONAL_TOKENS = ("Tab complete", "Ctrl+R resume", "Ctrl+T tree", "Ctrl+Y status")
+_HINT_SEPARATOR = " | "
 
 
 def accept_completion_or_submit(buffer: Buffer) -> bool:
@@ -107,6 +113,67 @@ class InteractivePromptSession:
     def record_submission(self, text: str) -> None:
         self._history_store.append(text)
 
+    @staticmethod
+    def _toolbar_columns() -> int:
+        app = get_app_or_none()
+        if app is None:
+            return 80
+        try:
+            columns = int(app.output.get_size().columns)
+        except Exception:
+            return 80
+        return columns if columns > 0 else 80
+
+    @staticmethod
+    def _display_width(text: str) -> int:
+        width = wcswidth(text)
+        return width if width >= 0 else len(text)
+
+    def _truncate_with_ellipsis(self, text: str, limit: int) -> str:
+        if self._display_width(text) <= limit:
+            return text
+        if limit <= 3:
+            # Keep behavior predictable for tiny terminals.
+            return text[:limit]
+        target = limit - 3
+        buf: list[str] = []
+        width = 0
+        for ch in text:
+            w = self._display_width(ch)
+            if width + w > target:
+                break
+            buf.append(ch)
+            width += w
+        return "".join(buf) + "..."
+
+    def _join_hint_tokens(self, tokens: Sequence[str]) -> str:
+        return _HINT_SEPARATOR.join(tokens)
+
+    def _compose_toolbar_hint(self, columns: int) -> str:
+        full_tokens = [*_HINT_REQUIRED_TOKENS, *_HINT_OPTIONAL_TOKENS]
+        full_text = self._join_hint_tokens(full_tokens)
+        if self._display_width(full_text) <= columns:
+            return full_text
+
+        tokens = list(_HINT_REQUIRED_TOKENS)
+        for token in _HINT_OPTIONAL_TOKENS:
+            candidate = self._join_hint_tokens([*tokens, token])
+            if self._display_width(candidate) > columns:
+                break
+            tokens.append(token)
+
+        text = self._join_hint_tokens(tokens)
+        if text != full_text:
+            ellipsis_candidate = f"{text}{_HINT_SEPARATOR}..."
+            if self._display_width(ellipsis_candidate) <= columns:
+                return ellipsis_candidate
+        return self._truncate_with_ellipsis(text, columns)
+
     def _bottom_toolbar(self) -> HTML:
-        status = escape(self._status_provider())
-        return HTML(f"<bottom-toolbar> {status} </bottom-toolbar>")
+        columns = self._toolbar_columns()
+        status = escape(self._compose_toolbar_hint(columns))
+        divider = "─" * columns
+        return HTML(
+            f"<bottom-toolbar> {status} </bottom-toolbar>\n"
+            f"<bottom-toolbar>{divider}</bottom-toolbar>"
+        )

@@ -35,7 +35,10 @@ _BUILTIN_COMMANDS = [
     "resume",
     "scoped-models",
 ]
-_PROMPT_HINT = "Enter send | Ctrl+J newline | Tab complete | Ctrl+R resume | Ctrl+T tree | Ctrl+C interrupt"
+_PROMPT_HINT = (
+    "Enter send | Ctrl+J newline | Tab complete | Ctrl+R resume | Ctrl+T tree | "
+    "Ctrl+Y status | Ctrl+C interrupt"
+)
 
 
 def _normalize_lines(content: Any, *, field_name: str) -> list[str] | None:
@@ -336,6 +339,9 @@ class GenInteractiveApp:
     async def manual_compact(self) -> None:
         await self._submit("/compact", echo_user=False)
 
+    async def toggle_status_detail(self) -> None:
+        self._live_view.toggle_status_detail()
+
     async def run_async(self) -> int:
         if self.session.ui_extensions_enabled:
             self.session.bind_ui_context(PtkExtensionUIContext(self))
@@ -360,7 +366,6 @@ class GenInteractiveApp:
                     except EOFError:
                         break
                     except KeyboardInterrupt:
-                        self._live_view.add_notice("Input cancelled", level="warning")
                         continue
                     finally:
                         self._editor_text = ""

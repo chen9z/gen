@@ -96,4 +96,12 @@ async def test_interactive_submit_renders_stream_and_tool_blocks(monkeypatch, tm
 
     console = Console(record=True, force_terminal=False, width=120)
     console.print(app._live_view._build_renderable())
-    assert "Calculating" not in console.export_text()
+    rendered = console.export_text()
+    assert "Calculating" not in rendered
+    assert "Ctrl+C to interrupt" in rendered
+    assert "esc to interrupt" not in rendered.lower()
+    assert rendered.rfind("─") < rendered.rfind("Ctrl+C to interrupt")
+    assert "● read(" in rendered
+    assert "[RUN]" not in rendered
+    assert "[OK]" not in rendered
+    assert "[ERR]" not in rendered

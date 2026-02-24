@@ -31,6 +31,9 @@
 - tools schema 对齐：`find` 改为 `pattern` 必填、`ls` 收敛为 `path/limit`；其余工具参数命名与 `pi-mono` 保持一致（`oldText/newText`、`ignoreCase` 等）。
 - system prompt 对齐：采用与 `pi-mono` 一致的结构化构建流程（工具说明、按工具能力动态 guidelines、文档引导、context/skills 追加顺序、时间与 cwd 尾部注入）。
 - interactive UI：已切换到 `prompt_toolkit + Rich` 单主视图（Claude 风格），采用 Rich Live 稳态渲染，保留命令驱动交互与轻量选择器。
+- interactive 输入区边界：已对齐上下双分割线（消息区上分割线 + 底栏动态宽度下分割线），底部提示收敛为 `Ctrl+C to interrupt`。
+- interactive UI 第二轮收敛：工具状态改为彩色原点并附完成态摘要；消息窗口按终端高度动态裁剪；notice 改为短时 toast；输入态 `Ctrl+C` 不再写入噪声提示。
+- interactive 渲染细节优化：支持同消息多 toolcall 预览并按 `contentIndex` 解析增量；状态行支持 `Ctrl+Y` 明细切换；超长完成态正文避免 Markdown 重排闪烁；底栏提示按显示宽度裁剪。
 - interactive 行为对齐：`Ctrl+R/Ctrl+T` 选择器、`Ctrl+L/Ctrl+P` 模型轮换、`Ctrl+N` 新会话、`Ctrl+K` 压缩、`Tab` 补全、`Up/Down` 历史、`Esc` 取消。
 - interactive 输入增强：`Ctrl-J/Alt-Enter` 多行、slash fuzzy 补全、`@` 路径补全（忽略 `.git/node_modules/.venv/dist/build` 等目录）、历史持久化（`~/.config/gen-agent/user-history/<cwd_md5>.jsonl`）。
 - interactive 流式可视化增强：assistant 文本/thinking/toolcall 增量渲染，tool execution 以 in-progress/done 块持续展示。

@@ -4,6 +4,7 @@ from prompt_toolkit.buffer import Buffer, CompletionState
 from prompt_toolkit.completion import Completion
 from prompt_toolkit.document import Document
 from prompt_toolkit.formatted_text import to_formatted_text
+from wcwidth import wcswidth
 
 from gen_agent.interactive.prompt_session import (
     InteractivePromptSession,
@@ -52,13 +53,50 @@ def test_build_input_key_bindings_includes_multiline_keys() -> None:
 
 def test_prompt_session_toolbar_uses_short_hint(monkeypatch, tmp_path) -> None:
     monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path / "config"))
-    hint = "Enter send | Ctrl+J newline | Tab complete | Ctrl+R resume | Ctrl+T tree | Ctrl+C interrupt"
     session = InteractivePromptSession(
         cwd=str(tmp_path),
         command_provider=lambda: [],
-        status_provider=lambda: hint,
+        status_provider=lambda: "",
     )
 
     fragments = to_formatted_text(session._bottom_toolbar())
     rendered = "".join(text for _style, text, *_ in fragments)
-    assert hint in rendered
+    assert "Enter send" in rendered
+    assert "Ctrl+J newline" in rendered
+    assert "Ctrl+C interrupt" in rendered
+    assert "─" in rendered
+    assert "\n" in rendered
+
+
+def test_prompt_session_toolbar_truncates_on_narrow_width(monkeypatch, tmp_path) -> None:
+    monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path / "config"))
+    session = InteractivePromptSession(
+        cwd=str(tmp_path),
+        command_provider=lambda: [],
+        status_provider=lambda: "",
+    )
+    monkeypatch.setattr(session, "_toolbar_columns", lambda: 56)
+
+    fragments = to_formatted_text(session._bottom_toolbar())
+    rendered = "".join(text for _style, text, *_ in fragments)
+    hint_line, divider_line = rendered.split("\n", maxsplit=1)
+
+    assert len(hint_line.strip()) <= 56
+    assert "Enter send" in hint_line
+    assert "Ctrl+J newline" in hint_line
+    assert "Ctrl+C interrupt" in hint_line
+    assert "..." in hint_line
+    assert len(divider_line) == 56
+
+
+def test_prompt_session_truncate_respects_display_width(monkeypatch, tmp_path) -> None:
+    monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path / "config"))
+    session = InteractivePromptSession(
+        cwd=str(tmp_path),
+        command_provider=lambda: [],
+        status_provider=lambda: "",
+    )
+
+    clipped = session._truncate_with_ellipsis("宽宽宽宽宽宽宽宽宽宽", 8)
+    assert wcswidth(clipped) <= 8
+    assert clipped.endswith("...")

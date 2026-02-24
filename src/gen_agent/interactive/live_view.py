@@ -2,7 +2,9 @@ from __future__ import annotations
 
 import asyncio
 import json
+import time
 from collections.abc import Sequence
+from typing import Any
 
 from rich.console import Console, Group, RenderableType
 from rich.live import Live
@@ -16,6 +18,10 @@ from gen_agent.models.events import AgentSessionEvent
 from gen_agent.models.messages import AssistantMessage
 
 from .blocks import AssistantBlock, ToolRunBlock, UserPromptBlock
+
+_NOTICE_TTL_SECONDS = {"info": 2.5, "warning": 4.0, "error": 6.0}
+_MAX_VISIBLE_NOTICES = 2
+_NOTICE_RESERVED_LINES = 1
 
 
 class LiveView:
@@ -40,11 +46,15 @@ class LiveView:
         self._widgets_above: dict[str, list[str]] = {}
         self._widgets_below: dict[str, list[str]] = {}
         self._status_items: dict[str, str] = {}
-        self._notices: list[tuple[str, str]] = []
+        self._notices: list[tuple[str, str, float]] = []
 
         self._entries: list[UserPromptBlock | AssistantBlock | ToolRunBlock] = []
         self._tool_runs: dict[str, ToolRunBlock] = {}
         self._draft: AssistantBlock | None = None
+        self._active_toolcall_index: int | None = None
+        self._toolcall_phase: dict[int, str] = {}
+        self._status_verbose = False
+        self._sticky_error_notice: str | None = None
         self._working = False
         self._mooning_spinner: Spinner | None = None
 
@@ -104,10 +114,30 @@ class LiveView:
             return
 
     def _flush_once(self) -> None:
+        if self._prune_notices():
+            self._dirty = True
         if not self._dirty or self._live is None:
             return
         self._live.update(self._build_renderable(), refresh=True)
         self._dirty = False
+
+    def _prune_notices(self) -> bool:
+        if not self._notices:
+            return False
+        now = time.monotonic()
+        kept = [notice for notice in self._notices if notice[2] > now]
+        if len(kept) == len(self._notices):
+            return False
+        self._notices = kept
+        return True
+
+    def _active_notices(self) -> list[tuple[str, str]]:
+        self._prune_notices()
+        active = [(level, text) for level, text, _ in self._notices]
+        if self._sticky_error_notice:
+            active = [item for item in active if not (item[0] == "error" and item[1] == self._sticky_error_notice)]
+            active.append(("error", self._sticky_error_notice))
+        return active[-_MAX_VISIBLE_NOTICES:]
 
     def set_title(self, title: str) -> None:
         self._title = title
@@ -128,6 +158,10 @@ class LiveView:
             self._status_items[key] = text
         self.request_refresh()
 
+    def toggle_status_detail(self) -> None:
+        self._status_verbose = not self._status_verbose
+        self.request_refresh()
+
     def set_widget(self, key: str, lines: Sequence[str] | None, *, placement: str) -> None:
         if placement == "below_editor":
             target = self._widgets_below
@@ -143,8 +177,11 @@ class LiveView:
         self.request_refresh()
 
     def add_notice(self, message: str, *, level: str = "info") -> None:
-        self._notices.append((level, message))
+        ttl = _NOTICE_TTL_SECONDS.get(level, _NOTICE_TTL_SECONDS["info"])
+        self._notices.append((level, message, time.monotonic() + ttl))
         self._notices = self._notices[-8:]
+        if level == "error":
+            self._sticky_error_notice = message
         self.request_refresh()
 
     def add_user_prompt(self, message: str) -> None:
@@ -165,6 +202,7 @@ class LiveView:
         if etype == "agent_start":
             self._working = True
             self._mooning_spinner = Spinner("moon", "")
+            self._sticky_error_notice = None
             self.request_refresh()
             return
         if etype == "agent_end":
@@ -182,6 +220,7 @@ class LiveView:
             assistant_event = getattr(event, "assistant_message_event", None)
             a_type = getattr(assistant_event, "type", "")
             delta = getattr(assistant_event, "delta", "") or ""
+            content_index = getattr(assistant_event, "content_index", None)
 
             if a_type == "start":
                 self._stream_tick += 1
@@ -197,9 +236,22 @@ class LiveView:
                 self._ensure_draft().append_thinking(delta)
                 self.request_refresh()
                 return
+            if a_type == "toolcall_start":
+                self._stream_tick += 1
+                if isinstance(content_index, int):
+                    self._active_toolcall_index = content_index
+                    self._toolcall_phase[content_index] = "name"
+                self.request_refresh()
+                return
             if a_type == "toolcall_delta":
                 self._stream_tick += 1
-                self._ensure_draft().append_toolcall(delta)
+                self._append_toolcall_delta(self._ensure_draft(), content_index, delta)
+                self.request_refresh()
+                return
+            if a_type == "toolcall_end":
+                self._stream_tick += 1
+                if isinstance(content_index, int):
+                    self._toolcall_phase[content_index] = "done"
                 self.request_refresh()
                 return
             if a_type == "error":
@@ -210,6 +262,8 @@ class LiveView:
                     self._fill_block_from_message(block, message)
                 block.finish()
                 self._draft = None
+                self._active_toolcall_index = None
+                self._toolcall_phase.clear()
                 self.request_refresh()
                 return
             if a_type == "done":
@@ -219,6 +273,8 @@ class LiveView:
                     self._fill_block_from_message(block, message)
                 block.finish()
                 self._draft = None
+                self._active_toolcall_index = None
+                self._toolcall_phase.clear()
                 self.request_refresh()
                 return
             return
@@ -246,7 +302,10 @@ class LiveView:
                 )
                 self._append_entry(block)
                 self._tool_runs[event.tool_call_id] = block
-            block.mark_done(is_error=bool(getattr(event, "is_error", False)))
+            block.mark_done(
+                is_error=bool(getattr(event, "is_error", False)),
+                result_summary=self._summarize_tool_result(getattr(event, "result", None)),
+            )
             self.request_refresh()
             return
 
@@ -275,6 +334,8 @@ class LiveView:
         block = AssistantBlock(done=False)
         self._append_entry(block)
         self._draft = block
+        self._active_toolcall_index = None
+        self._toolcall_phase.clear()
         self.request_refresh()
 
     def _ensure_draft(self) -> AssistantBlock:
@@ -301,13 +362,120 @@ class LiveView:
                 block.append_thinking(item.thinking)
             elif isinstance(item, ToolCallContent):
                 payload = json.dumps(item.arguments, ensure_ascii=False)
-                block.append_toolcall(f"{item.name}({payload})")
+                block.set_toolcall_from_message(len(block.toolcalls), item.name, payload)
 
     def _clear_mooning_spinner(self) -> None:
         if self._mooning_spinner is None:
             return
         self._mooning_spinner = None
         self.request_refresh()
+
+    def _append_toolcall_delta(
+        self, block: AssistantBlock, content_index: int | None, delta: str
+    ) -> None:
+        if not delta:
+            return
+        index = content_index if isinstance(content_index, int) else self._active_toolcall_index
+        if index is None:
+            index = -1
+        else:
+            self._active_toolcall_index = index
+
+        phase = self._toolcall_phase.get(index, "name")
+        stripped = delta.lstrip()
+        if phase == "name":
+            if stripped in {"(", ")"}:
+                return
+
+            start_positions = [pos for marker in ("{", "[") if (pos := delta.find(marker)) >= 0]
+            boundary = min(start_positions) if start_positions else -1
+
+            if boundary >= 0:
+                name_part = delta[:boundary].rstrip(" (")
+                args_part = delta[boundary:]
+                if name_part:
+                    block.append_toolcall_name(index, name_part)
+                if args_part:
+                    block.append_toolcall_args(index, args_part)
+                    self._toolcall_phase[index] = "args"
+                return
+
+            if stripped.startswith(("{", "[", "\"", ":", ",")):
+                block.append_toolcall_args(index, delta)
+                self._toolcall_phase[index] = "args"
+                return
+
+            block.append_toolcall_name(index, delta)
+            self._toolcall_phase.setdefault(index, "name")
+            return
+
+        if phase in {"args", "done"}:
+            block.append_toolcall_args(index, delta)
+            self._toolcall_phase[index] = "args"
+            return
+        block.append_toolcall_name(index, delta)
+
+    @staticmethod
+    def _truncate_single_line(text: str, limit: int) -> str:
+        collapsed = " ".join(text.split())
+        if len(collapsed) <= limit:
+            return collapsed
+        return collapsed[: max(0, limit - 3)] + "..."
+
+    def _summarize_tool_result(self, result: Any, limit: int = 96) -> str | None:
+        if result is None:
+            return None
+        if isinstance(result, dict):
+            is_error = bool(result.get("isError") or result.get("is_error"))
+            content = result.get("content")
+            if isinstance(content, list):
+                for item in content:
+                    if isinstance(item, dict):
+                        text = item.get("text")
+                        if isinstance(text, str) and text.strip():
+                            summary = self._truncate_single_line(text, limit)
+                            return f"error: {summary}" if is_error else summary
+
+            details = result.get("details")
+            if details not in (None, "", [], {}):
+                if isinstance(details, dict):
+                    for key in ("brief", "message", "summary", "error", "reason"):
+                        value = details.get(key)
+                        if isinstance(value, str) and value.strip():
+                            summary = self._truncate_single_line(value, limit)
+                            return f"error: {summary}" if is_error else summary
+                try:
+                    details_text = json.dumps(details, ensure_ascii=False)
+                except TypeError:
+                    details_text = str(details)
+                summary = self._truncate_single_line(details_text, limit)
+                return f"error: {summary}" if is_error else summary
+
+        fallback = self._truncate_single_line(str(result), limit)
+        return fallback or None
+
+    def _console_rows(self) -> int:
+        try:
+            rows = int(getattr(self._console.size, "height", 0) or 0)
+        except Exception:
+            rows = 0
+        return rows if rows > 0 else 24
+
+    def _widget_line_count(self) -> int:
+        above = sum(len(lines) for lines in self._widgets_above.values())
+        below = sum(len(lines) for lines in self._widgets_below.values())
+        return above + below
+
+    def _effective_render_entry_limit(self) -> int:
+        rows = self._console_rows()
+        reserved = (
+            8
+            + len(self._header_lines)
+            + len(self._footer_lines)
+            + _NOTICE_RESERVED_LINES
+            + self._widget_line_count()
+        )
+        return max(6, min(self._entry_limit, rows - reserved))
 
     def _build_status_line(self) -> Text:
         meta = self._session.get_state()
@@ -317,19 +485,28 @@ class LiveView:
         session_name = meta.get("sessionName") or "-"
         pending = meta.get("pendingMessageCount", 0)
         status = "Working" if self._working else "Ready"
-        parts = [
-            f"provider={provider}/{model}",
-            f"thinking={thinking}",
-            f"session={session_name}",
-            f"pending={pending}",
-            f"status={status}",
-        ]
-        for key, value in sorted(self._status_items.items()):
-            parts.append(f"{key}={value}")
+        if self._status_verbose:
+            parts = [
+                f"provider={provider}/{model}",
+                f"thinking={thinking}",
+                f"session={session_name}",
+                f"pending={pending}",
+                f"status={status}",
+            ]
+            for key, value in sorted(self._status_items.items()):
+                parts.append(f"{key}={value}")
+        else:
+            parts = [f"{provider}/{model}", f"session={session_name}"]
+            if thinking != "off":
+                parts.append(f"thinking={thinking}")
+            if pending:
+                parts.append(f"pending={pending}")
+            parts.append(f"status={status}")
         return Text(" | ".join(parts), style="dim")
 
     def _build_renderable(self) -> RenderableType:
         segments: list[RenderableType] = []
+        active_notices = self._active_notices()
         if self._title:
             segments.append(Text(self._title, style="bold"))
         segments.append(self._build_status_line())
@@ -343,7 +520,8 @@ class LiveView:
             segments.extend(Text(line) for line in lines)
 
         if self._entries:
-            start = max(0, len(self._entries) - self._render_entry_limit)
+            render_limit = self._effective_render_entry_limit()
+            start = max(0, len(self._entries) - render_limit)
             renderables: list[RenderableType] = []
             if start > 0:
                 renderables.append(Text("... earlier messages omitted ...", style="dim"))
@@ -363,10 +541,12 @@ class LiveView:
             segments.append(Text(""))
             segments.append(self._mooning_spinner)
 
-        if self._notices:
-            for level, text in self._notices[-4:]:
-                color = {"info": "dim", "warning": "yellow", "error": "red"}.get(level, "dim")
-                segments.append(Text(f"* {text}", style=color))
+        if active_notices:
+            level, text = active_notices[-1]
+            color = {"info": "dim", "warning": "yellow", "error": "red"}.get(level, "dim")
+            segments.append(Text(f"* {text}", style=color))
+        else:
+            segments.append(Text(""))
 
         if self._footer_lines:
             segments.append(Text(""))
@@ -376,7 +556,6 @@ class LiveView:
             segments.append(Text(f"{key}", style="magenta"))
             segments.extend(Text(line) for line in lines)
 
-        segments.append(Text(""))
         segments.append(Rule(style="bright_black"))
         segments.append(Text("Ctrl+C to interrupt", style="dim"))
         return Group(*segments)

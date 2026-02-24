@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import signal
+from contextlib import nullcontext
 
 import pytest
 
@@ -155,6 +156,7 @@ def test_interactive_prompt_prefix_uses_single_style() -> None:
     app = GenInteractiveApp(_DummySession())
     assert app._editor_prompt_prefix() == "› "
     assert "Ctrl+C interrupt" in app._prompt_status()
+    assert "Ctrl+Y status" in app._prompt_status()
 
     app.set_editor_component(CustomEditorComponent(placeholder="input"))
     assert app._editor_prompt_prefix() == "› input: "
@@ -207,3 +209,33 @@ async def test_submit_ctrl_c_cancels_active_run_and_restores_signal(monkeypatch:
     assert await submit_task is True
     assert session.cancelled is True
     assert current_handler in installed
+
+
+@pytest.mark.asyncio
+async def test_run_async_keyboard_interrupt_does_not_emit_input_cancelled_notice(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    session = _DummySession()
+    app = GenInteractiveApp(session)
+    notices: list[tuple[str, str]] = []
+
+    class _PromptStub:
+        def __init__(self) -> None:
+            self.calls = 0
+
+        async def prompt_async(self, *_args, **_kwargs) -> str:
+            self.calls += 1
+            if self.calls == 1:
+                raise KeyboardInterrupt
+            raise EOFError
+
+    app._prompt_session = _PromptStub()
+    monkeypatch.setattr(app._live_view, "start", lambda: None)
+    monkeypatch.setattr(app._live_view, "stop", lambda: None)
+    monkeypatch.setattr(app._live_view, "add_notice", lambda message, level="info": notices.append((message, level)))
+    monkeypatch.setattr("gen_agent.interactive.ptk_app.patch_stdout", lambda raw=True: nullcontext())
+
+    code = await app.run_async()
+
+    assert code == 0
+    assert all(message != "Input cancelled" for message, _ in notices)
