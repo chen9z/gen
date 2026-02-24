@@ -47,6 +47,7 @@ class AssistantBlock:
     toolcalls: dict[int, ToolcallPreview] = field(default_factory=dict)
     error: str | None = None
     done: bool = False
+    usage_text: str = ""
 
     def has_content(self) -> bool:
         return bool(self.text or self.thinking or self.toolcalls or self.error)
@@ -124,6 +125,9 @@ class AssistantBlock:
                 title_align="left",
                 padding=(0, 1),
             ))
+
+        if self.usage_text and self.done:
+            parts.append(Text(self.usage_text, style="dim"))
 
         return Group(*parts) if parts else Text("")
 

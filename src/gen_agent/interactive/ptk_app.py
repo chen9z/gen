@@ -3,6 +3,7 @@ from __future__ import annotations
 import asyncio
 import signal
 import sys
+import time
 from collections.abc import Iterable
 from typing import Any
 
@@ -178,12 +179,13 @@ class GenInteractiveApp:
 
         self._editor_text = ""
         self._editor_component: CustomEditorComponent | None = None
+        self._last_interrupt_time: float = 0.0
+        self._force_quit = False
 
         self._live_view = LiveView(session)
         self._prompt_session = InteractivePromptSession(
             cwd=session.cwd,
             command_provider=self.command_pool,
-            status_provider=self._prompt_status,
             key_bindings=build_key_bindings(self),
         )
 
@@ -234,15 +236,20 @@ class GenInteractiveApp:
             return f"❯ {self._editor_component.placeholder}: "
         return "❯ "
 
-    def _prompt_status(self) -> str:
-        return ""
-
     def _cancel_active_run(self) -> None:
+        now = time.monotonic()
         task = self._active_run_task
         if task is None or task.done():
+            self._last_interrupt_time = now
+            return
+        if self._last_interrupt_time > 0 and now - self._last_interrupt_time < 1.5:
+            self._force_quit = True
+            task.cancel()
+            self._live_view.add_notice("Force quit", level="warning")
             return
         task.cancel()
-        self._live_view.add_notice("Interrupted current run", level="warning")
+        self._last_interrupt_time = now
+        self._live_view.add_notice("Interrupted (Ctrl+C again to quit)", level="warning")
 
     def _install_sigint_handler(self) -> None:
         if self._previous_sigint_handler is not None:
@@ -281,6 +288,7 @@ class GenInteractiveApp:
             if echo_user:
                 self._live_view.print_user_prompt(payload)
 
+            self._force_quit = False
             self._live_view.start()
             try:
                 stream_tick = self._live_view.stream_tick
@@ -291,7 +299,7 @@ class GenInteractiveApp:
                 except SystemExit:
                     return False
                 except asyncio.CancelledError:
-                    return True
+                    return not self._force_quit
                 except Exception as exc:
                     self._live_view.add_notice(f"error: {exc}", level="error")
                     return True
@@ -353,12 +361,16 @@ class GenInteractiveApp:
             self._live_view.print_welcome_banner()
 
             if self.initial_prompt:
-                keep_running = await self._submit(self.initial_prompt)
+                self._live_view.print_prompt_separator()
+                self._live_view.print_user_prompt(self.initial_prompt)
+                self._live_view.print_prompt_separator()
+                keep_running = await self._submit(self.initial_prompt, echo_user=False)
                 if not keep_running:
                     return 0
 
             while True:
                 try:
+                    self._live_view.print_prompt_separator()
                     with patch_stdout(raw=True):
                         text = await self._prompt_session.prompt_async(
                             self._editor_prompt_prefix(),
@@ -371,7 +383,7 @@ class GenInteractiveApp:
                 finally:
                     self._editor_text = ""
 
-                keep_running = await self._submit(text)
+                keep_running = await self._submit(text, echo_user=False)
                 if not keep_running:
                     break
         finally:

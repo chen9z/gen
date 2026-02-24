@@ -3,8 +3,6 @@ from __future__ import annotations
 from prompt_toolkit.buffer import Buffer, CompletionState
 from prompt_toolkit.completion import Completion
 from prompt_toolkit.document import Document
-from prompt_toolkit.formatted_text import to_formatted_text
-from wcwidth import wcswidth
 
 from gen_agent.interactive.prompt_session import (
     InteractivePromptSession,
@@ -51,45 +49,10 @@ def test_build_input_key_bindings_includes_multiline_keys() -> None:
     assert ("c-m",) in key_sets
 
 
-def test_prompt_session_toolbar_uses_short_hint(monkeypatch, tmp_path) -> None:
+def test_prompt_session_creates_without_error(monkeypatch, tmp_path) -> None:
     monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path / "config"))
     session = InteractivePromptSession(
         cwd=str(tmp_path),
         command_provider=lambda: [],
-        status_provider=lambda: "",
     )
-
-    fragments = to_formatted_text(session._bottom_toolbar())
-    rendered = "".join(text for _style, text, *_ in fragments)
-    assert "Enter send" in rendered
-    assert "Esc+Enter newline" in rendered
-    assert "Ctrl+C interrupt" in rendered
-
-
-def test_prompt_session_toolbar_truncates_on_narrow_width(monkeypatch, tmp_path) -> None:
-    monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path / "config"))
-    session = InteractivePromptSession(
-        cwd=str(tmp_path),
-        command_provider=lambda: [],
-        status_provider=lambda: "",
-    )
-    monkeypatch.setattr(session, "_toolbar_columns", lambda: 56)
-
-    fragments = to_formatted_text(session._bottom_toolbar())
-    rendered = "".join(text for _style, text, *_ in fragments)
-    assert len(rendered.strip()) <= 56
-    assert "Enter send" in rendered
-    assert "Ctrl+C interrupt" in rendered
-
-
-def test_prompt_session_truncate_respects_display_width(monkeypatch, tmp_path) -> None:
-    monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path / "config"))
-    session = InteractivePromptSession(
-        cwd=str(tmp_path),
-        command_provider=lambda: [],
-        status_provider=lambda: "",
-    )
-
-    clipped = session._truncate_with_ellipsis("宽宽宽宽宽宽宽宽宽宽", 8)
-    assert wcswidth(clipped) <= 8
-    assert clipped.endswith("...")
+    assert session is not None

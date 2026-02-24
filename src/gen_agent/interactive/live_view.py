@@ -9,6 +9,7 @@ from typing import Any
 from rich.console import Console, Group, RenderableType
 from rich.live import Live
 from rich.panel import Panel
+from rich.rule import Rule
 from rich.spinner import Spinner
 from rich.text import Text
 
@@ -21,6 +22,35 @@ from .blocks import AssistantBlock, ToolRunBlock, UserPromptBlock
 
 _NOTICE_TTL_SECONDS = {"info": 2.5, "warning": 4.0, "error": 6.0}
 _MAX_VISIBLE_NOTICES = 2
+
+
+def _format_tokens(n: int) -> str:
+    if n <= 0:
+        return "0"
+    if n < 1000:
+        return str(n)
+    if n < 10_000:
+        return f"{n / 1000:.1f}k"
+    return f"{n // 1000}k"
+
+
+def _format_usage(message: AssistantMessage) -> str:
+    usage = message.usage
+    if usage.total_tokens <= 0 and usage.input <= 0 and usage.output <= 0:
+        return ""
+    parts: list[str] = []
+    if message.provider or message.model:
+        parts.append(f"{message.provider}/{message.model}")
+    if usage.input > 0:
+        parts.append(f"{_format_tokens(usage.input)} input")
+    if usage.output > 0:
+        parts.append(f"{_format_tokens(usage.output)} output")
+    if usage.cache_read > 0:
+        parts.append(f"{_format_tokens(usage.cache_read)} cache read")
+    cost = usage.cost.total
+    if cost > 0:
+        parts.append(f"${cost:.4f}" if cost < 0.01 else f"${cost:.2f}")
+    return " · ".join(parts)
 
 
 class LiveView:
@@ -108,6 +138,9 @@ class LiveView:
     # ------------------------------------------------------------------
     # Direct console output (outside Live)
     # ------------------------------------------------------------------
+
+    def print_prompt_separator(self) -> None:
+        self._console.print(Rule(style="bright_black"))
 
     def print_user_prompt(self, message: str) -> None:
         self._console.print()
@@ -200,6 +233,7 @@ class LiveView:
                 break
             if self._live is not None:
                 self._console.print(entry.render())
+                self._console.print()
             self._committed_count += 1
             self._dirty = True
 
@@ -309,6 +343,18 @@ class LiveView:
             self._working = False
             self._mooning_spinner = None
             self.request_refresh()
+            return
+
+        if etype == "message_end":
+            message = getattr(event, "message", None)
+            if isinstance(message, AssistantMessage):
+                usage_text = _format_usage(message)
+                if usage_text:
+                    for entry in reversed(self._entries):
+                        if isinstance(entry, AssistantBlock):
+                            entry.usage_text = usage_text
+                            self.request_refresh()
+                            break
             return
 
         if etype == "message_update":
