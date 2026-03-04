@@ -94,6 +94,14 @@ class LiveView:
         self._live: Live | None = None
         self._flush_task: asyncio.Task[None] | None = None
 
+        # Adaptive refresh
+        self._last_activity_time = time.monotonic()
+        self._min_interval = 0.02
+        self._max_interval = 0.2
+
+        # Real-time usage tracking
+        self._current_usage = {"input": 0, "output": 0, "cost": 0.0}
+
     # ------------------------------------------------------------------
     # Properties
     # ------------------------------------------------------------------
@@ -163,6 +171,8 @@ class LiveView:
         self._working = False
         self._notices.clear()
         self._sticky_error_notice = None
+        self._current_usage = {"input": 0, "output": 0, "cost": 0.0}
+        self._last_activity_time = time.monotonic()
 
         self._live = Live(
             Text(""),
@@ -202,9 +212,18 @@ class LiveView:
         try:
             while True:
                 self._flush_once()
-                await asyncio.sleep(self._batch_interval)
+                interval = self._calculate_adaptive_interval()
+                await asyncio.sleep(interval)
         except asyncio.CancelledError:
             return
+
+    def _calculate_adaptive_interval(self) -> float:
+        """Calculate adaptive refresh interval based on activity."""
+        if self._working:
+            return self._min_interval
+        time_since = time.monotonic() - self._last_activity_time
+        idle_factor = min(time_since / 2.0, 5.0)
+        return min(self._max_interval, self._batch_interval * (1 + idle_factor))
 
     def _flush_once(self) -> None:
         self._commit_ready_entries()
@@ -219,6 +238,21 @@ class LiveView:
             return
         self._live.update(self._build_renderable(), refresh=True)
         self._dirty = False
+
+    def _update_realtime_usage(self, delta: str) -> None:
+        """Update real-time usage estimation during streaming."""
+        if not delta:
+            return
+        # Rough estimation: ~4 chars per token
+        estimated_tokens = len(delta) // 4
+        self._current_usage["output"] += estimated_tokens
+        # Update draft block with estimated usage
+        if self._draft and not self._draft.done:
+            parts = []
+            if self._current_usage["output"] > 0:
+                parts.append(f"~{_format_tokens(self._current_usage['output'])} output")
+            if parts:
+                self._draft.usage_text = " · ".join(parts)
 
     # ------------------------------------------------------------------
     # Commit logic – print done entries above the Live area
@@ -375,11 +409,15 @@ class LiveView:
             if a_type == "text_delta":
                 self._stream_tick += 1
                 self._ensure_draft().append_text(delta)
+                self._update_realtime_usage(delta)
+                self._last_activity_time = time.monotonic()
                 self.request_refresh()
                 return
             if a_type == "thinking_delta":
                 self._stream_tick += 1
                 self._ensure_draft().append_thinking(delta)
+                self._update_realtime_usage(delta)
+                self._last_activity_time = time.monotonic()
                 self.request_refresh()
                 return
             if a_type == "toolcall_start":
@@ -427,13 +465,16 @@ class LiveView:
 
         if etype == "tool_execution_start":
             self._clear_mooning_spinner()
+            import time
             block = ToolRunBlock(
                 tool_call_id=event.tool_call_id,
                 name=event.tool_name,
                 args=event.args,
+                start_time=time.time(),
             )
             self._tool_runs[event.tool_call_id] = block
             self._append_entry(block)
+            self._last_activity_time = time.monotonic()
             self.request_refresh()
             return
 

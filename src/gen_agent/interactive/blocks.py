@@ -93,10 +93,10 @@ class AssistantBlock:
 
         if self.thinking:
             if self.done:
-                parts.append(Text("💭 Thinking...", style="dim italic"))
+                parts.append(Text("Thinking...", style="dim italic"))
             else:
                 preview = self._single_line_preview(self.thinking, limit=80)
-                parts.append(Text(f"💭 {preview}", style="dim italic"))
+                parts.append(Text(f"Thinking: {preview}", style="dim italic"))
 
         if self.text:
             if self.done:
@@ -111,22 +111,16 @@ class AssistantBlock:
                 name_preview = self._single_line_preview(preview.name, limit=48).strip() or "tool"
                 args_preview = self._single_line_preview(preview.args, limit=96).strip()
                 tc = Text()
-                tc.append("⏵ ", style="cyan")
+                tc.append("> ", style="cyan")
                 tc.append(name_preview, style="bold")
                 if args_preview:
-                    tc.append(f"({args_preview})", style="dim")
+                    tc.append(f" ({args_preview})", style="dim")
                 parts.append(tc)
 
         if self.error:
-            parts.append(Panel(
-                Text(self.error, style="red"),
-                border_style="red",
-                title="Error",
-                title_align="left",
-                padding=(0, 1),
-            ))
+            parts.append(Text(f"Error: {self.error}", style="red"))
 
-        if self.usage_text and self.done:
+        if self.usage_text:
             parts.append(Text(self.usage_text, style="dim"))
 
         return Group(*parts) if parts else Text("")
@@ -140,11 +134,16 @@ class ToolRunBlock:
     status: str = "running"
     is_error: bool = False
     result_summary: str | None = None
+    start_time: float = 0.0
+    duration: float = 0.0
 
     def mark_done(self, *, is_error: bool, result_summary: str | None = None) -> None:
         self.status = "done"
         self.is_error = is_error
         self.result_summary = result_summary
+        if self.start_time > 0:
+            import time
+            self.duration = time.time() - self.start_time
 
     def _key_arg(self) -> str:
         return _extract_tool_key_arg(self.name, self.args)
@@ -154,22 +153,23 @@ class ToolRunBlock:
 
         if self.status == "running":
             label = Text()
-            label.append("⏺ ", style="yellow")
             label.append(self.name, style="bold")
             if key_arg:
-                label.append(f"  {key_arg}", style="dim")
+                label.append(f": {key_arg}", style="dim")
             return Spinner("dots", text=label)
 
         line = Text()
         if self.is_error:
-            line.append("✗ ", style="red")
+            line.append("x ", style="red")
         else:
             line.append("✓ ", style="green")
         line.append(self.name, style="bold")
         if key_arg:
-            line.append(f"  {key_arg}", style="dim")
+            line.append(f": {key_arg}", style="dim")
+        if self.duration > 0.1:
+            line.append(f" ({self.duration:.2f}s)", style="dim")
         if self.result_summary:
-            line.append(f"  {self.result_summary}", style="dim")
+            line.append(f" - {self.result_summary}", style="dim")
         return line
 
 
@@ -179,7 +179,7 @@ class UserPromptBlock:
 
     def render(self) -> RenderableType:
         t = Text()
-        t.append("❯ ", style="bold cyan")
+        t.append("> ", style="bold cyan")
         t.append(self.content, style="bold")
         return t
 
