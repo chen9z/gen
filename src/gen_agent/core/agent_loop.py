@@ -148,7 +148,7 @@ async def run_agent_loop(
         has_more_tool_calls = True
         while (has_more_tool_calls or pending_messages) and turns_used < max_turns:
             if not first_turn:
-                emit(TurnStart())
+                emit(TurnStart(turn_number=turns_used + 1, max_turns=max_turns))
             first_turn = False
             turns_used += 1
 
@@ -199,6 +199,8 @@ async def run_agent_loop(
                         isError=is_error,
                     )
                 except Exception as exc:
+                    import traceback
+                    error_detail = traceback.format_exc()
                     result = ToolResultMessage(
                         toolCallId=call.id,
                         toolName=call.name,
@@ -218,6 +220,7 @@ async def run_agent_loop(
                         toolName=call.name,
                         result=result.model_dump(by_alias=True),
                         isError=is_error,
+                        errorDetail=error_detail if is_error else None,
                     )
                 )
 

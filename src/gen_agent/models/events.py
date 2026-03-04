@@ -19,6 +19,8 @@ class AgentEnd(ModelBase):
 
 class TurnStart(ModelBase):
     type: Literal["turn_start"] = "turn_start"
+    turn_number: int = Field(alias="turnNumber")
+    max_turns: int = Field(alias="maxTurns")
 
 
 class TurnEnd(ModelBase):
@@ -84,6 +86,7 @@ class ToolExecutionEnd(ModelBase):
     tool_name: str = Field(alias="toolName")
     result: Any
     is_error: bool = Field(alias="isError")
+    error_detail: str | None = Field(default=None, alias="errorDetail")
 
 
 AgentEvent = Annotated[

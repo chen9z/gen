@@ -168,8 +168,8 @@ def test_live_view_renders_compact_thinking_and_toolcall_preview() -> None:
     console = Console(record=True, force_terminal=False, width=120)
     console.print(view._build_renderable())
     rendered = console.export_text()
-    assert "💭" in rendered
-    assert "⏵" in rendered
+    assert "Thinking..." in rendered
+    assert ">" in rendered
     assert "read" in rendered
     assert "..." in rendered
 

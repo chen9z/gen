@@ -102,6 +102,10 @@ class LiveView:
         # Real-time usage tracking
         self._current_usage = {"input": 0, "output": 0, "cost": 0.0}
 
+        # Turn progress tracking
+        self._current_turn = 0
+        self._max_turns = 0
+
     # ------------------------------------------------------------------
     # Properties
     # ------------------------------------------------------------------
@@ -173,6 +177,7 @@ class LiveView:
         self._sticky_error_notice = None
         self._current_usage = {"input": 0, "output": 0, "cost": 0.0}
         self._last_activity_time = time.monotonic()
+        self._stream_tick = 0
 
         self._live = Live(
             Text(""),
@@ -371,11 +376,19 @@ class LiveView:
             self._working = True
             self._mooning_spinner = Spinner("dots", "")
             self._sticky_error_notice = None
+            self._current_turn = 0
+            self._max_turns = 0
             self.request_refresh()
             return
         if etype == "agent_end":
             self._working = False
             self._mooning_spinner = None
+            self.request_refresh()
+            return
+
+        if etype == "turn_start":
+            self._current_turn = getattr(event, "turn_number", 0)
+            self._max_turns = getattr(event, "max_turns", 0)
             self.request_refresh()
             return
 
@@ -447,6 +460,7 @@ class LiveView:
                 block.finish()
                 self._draft = None
                 self._active_toolcall_index = None
+                # Clean up toolcall phase tracking to prevent memory leaks
                 self._toolcall_phase.clear()
                 self.request_refresh()
                 return
@@ -458,6 +472,7 @@ class LiveView:
                 block.finish()
                 self._draft = None
                 self._active_toolcall_index = None
+                # Clean up toolcall phase tracking to prevent memory leaks
                 self._toolcall_phase.clear()
                 self.request_refresh()
                 return
@@ -465,7 +480,6 @@ class LiveView:
 
         if etype == "tool_execution_start":
             self._clear_mooning_spinner()
-            import time
             block = ToolRunBlock(
                 tool_call_id=event.tool_call_id,
                 name=event.tool_name,
@@ -492,6 +506,7 @@ class LiveView:
             block.mark_done(
                 is_error=bool(getattr(event, "is_error", False)),
                 result_summary=self._summarize_tool_result(getattr(event, "result", None)),
+                error_detail=getattr(event, "error_detail", None),
             )
             self.request_refresh()
             return
@@ -673,6 +688,11 @@ class LiveView:
             level, text = notices[-1]
             color = {"info": "dim", "warning": "yellow", "error": "red"}.get(level, "dim")
             segments.append(Text(f"  {text}", style=color))
+
+        # Show turn progress when active
+        if self._working and self._current_turn > 0 and self._max_turns > 0:
+            turn_text = Text(f"  Turn {self._current_turn}/{self._max_turns}", style="dim")
+            segments.append(turn_text)
 
         for _key, lines in sorted(self._widgets_above.items()):
             segments.extend(Text(line) for line in lines)

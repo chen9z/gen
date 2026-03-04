@@ -8,7 +8,13 @@ from gen_agent.core.agent_session import AgentSession
 from .render import InteractiveRenderState
 
 
-def build_status_line(session: AgentSession, state: InteractiveRenderState, editor_title: str | None = None) -> Text:
+def build_status_line(
+    session: AgentSession,
+    state: InteractiveRenderState,
+    editor_title: str | None = None,
+    current_turn: int = 0,
+    max_turns: int = 0,
+) -> Text:
     meta = session.get_state()
     session_name = meta.get("sessionName") or "-"
     pending = meta.get("pendingMessageCount", 0)
@@ -16,8 +22,9 @@ def build_status_line(session: AgentSession, state: InteractiveRenderState, edit
     provider = meta.get("provider", "-")
     model_id = meta.get("modelId", "-")
     editor = f" | editor={editor_title}" if editor_title else ""
+    turn_info = f" | turn={current_turn}/{max_turns}" if current_turn > 0 and max_turns > 0 else ""
     return Text(
-        f"provider={provider}/{model_id} | thinking={thinking} | session={session_name} | pending={pending} | status={state.status_text}{editor}"
+        f"provider={provider}/{model_id} | thinking={thinking} | session={session_name} | pending={pending}{turn_info} | status={state.status_text}{editor}"
     )
 
 

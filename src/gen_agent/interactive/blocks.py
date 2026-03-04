@@ -9,6 +9,8 @@ from rich.panel import Panel
 from rich.spinner import Spinner
 from rich.text import Text
 
+from .syntax_highlighter import StreamingSyntaxHighlighter
+
 LIVE_CHAR_LIMIT = 8000
 
 _TOOL_KEY_ARGS: dict[str, list[str]] = {
@@ -48,12 +50,14 @@ class AssistantBlock:
     error: str | None = None
     done: bool = False
     usage_text: str = ""
+    _highlighter: StreamingSyntaxHighlighter = field(default_factory=StreamingSyntaxHighlighter, init=False)
 
     def has_content(self) -> bool:
         return bool(self.text or self.thinking or self.toolcalls or self.error)
 
     def append_text(self, delta: str) -> None:
         self.text += delta
+        self._highlighter.append(delta)
 
     def append_thinking(self, delta: str) -> None:
         self.thinking += delta
@@ -102,7 +106,13 @@ class AssistantBlock:
             if self.done:
                 parts.append(Markdown(self.text))
             else:
-                parts.append(Text(self.text + "▍"))
+                # Use streaming syntax highlighting if code blocks detected
+                if self._highlighter.has_code_blocks():
+                    highlighted = self._highlighter.render_highlighted()
+                    parts.extend(highlighted)
+                    parts.append(Text("▍"))
+                else:
+                    parts.append(Text(self.text + "▍"))
         elif not self.done and not self.thinking:
             parts.append(Spinner("dots", text="Thinking..."))
 
@@ -134,16 +144,29 @@ class ToolRunBlock:
     status: str = "running"
     is_error: bool = False
     result_summary: str | None = None
+    error_detail: str | None = None
     start_time: float = 0.0
     duration: float = 0.0
+    _show_details: bool = False
 
-    def mark_done(self, *, is_error: bool, result_summary: str | None = None) -> None:
+    def mark_done(
+        self,
+        *,
+        is_error: bool,
+        result_summary: str | None = None,
+        error_detail: str | None = None,
+    ) -> None:
         self.status = "done"
         self.is_error = is_error
         self.result_summary = result_summary
+        self.error_detail = error_detail
         if self.start_time > 0:
             import time
             self.duration = time.time() - self.start_time
+
+    def toggle_details(self) -> None:
+        """Toggle error details visibility."""
+        self._show_details = not self._show_details
 
     def _key_arg(self) -> str:
         return _extract_tool_key_arg(self.name, self.args)
@@ -170,6 +193,14 @@ class ToolRunBlock:
             line.append(f" ({self.duration:.2f}s)", style="dim")
         if self.result_summary:
             line.append(f" - {self.result_summary}", style="dim")
+
+        # Show error details if available and expanded
+        if self.is_error and self.error_detail and self._show_details:
+            parts = [line]
+            detail_text = Text(self.error_detail, style="red dim")
+            parts.append(Panel(detail_text, title="Error Details", border_style="red"))
+            return Group(*parts)
+
         return line
 
 
