@@ -9,6 +9,7 @@ from rich.panel import Panel
 from rich.spinner import Spinner
 from rich.text import Text
 
+from .diff_renderer import extract_file_change_info, render_diff, summarize_diff
 from .syntax_highlighter import StreamingSyntaxHighlighter
 
 LIVE_CHAR_LIMIT = 8000
@@ -40,6 +41,20 @@ def _extract_tool_key_arg(name: str, args: dict[str, Any]) -> str:
 class ToolcallPreview:
     name: str = ""
     args: str = ""
+    _name_parts: list[str] = field(default_factory=list, init=False)
+    _args_parts: list[str] = field(default_factory=list, init=False)
+
+    def append_name(self, delta: str) -> None:
+        """Efficiently append to name using list accumulation."""
+        if delta:
+            self._name_parts.append(delta)
+            self.name = "".join(self._name_parts)
+
+    def append_args(self, delta: str) -> None:
+        """Efficiently append to args using list accumulation."""
+        if delta:
+            self._args_parts.append(delta)
+            self.args = "".join(self._args_parts)
 
 
 @dataclass(slots=True)
@@ -51,16 +66,24 @@ class AssistantBlock:
     done: bool = False
     usage_text: str = ""
     _highlighter: StreamingSyntaxHighlighter = field(default_factory=StreamingSyntaxHighlighter, init=False)
+    _text_parts: list[str] = field(default_factory=list, init=False)
+    _thinking_parts: list[str] = field(default_factory=list, init=False)
 
     def has_content(self) -> bool:
         return bool(self.text or self.thinking or self.toolcalls or self.error)
 
     def append_text(self, delta: str) -> None:
-        self.text += delta
-        self._highlighter.append(delta)
+        """Efficiently append to text using list accumulation."""
+        if delta:
+            self._text_parts.append(delta)
+            self.text = "".join(self._text_parts)
+            self._highlighter.append(delta)
 
     def append_thinking(self, delta: str) -> None:
-        self.thinking += delta
+        """Efficiently append to thinking using list accumulation."""
+        if delta:
+            self._thinking_parts.append(delta)
+            self.thinking = "".join(self._thinking_parts)
 
     def _ensure_toolcall(self, content_index: int) -> ToolcallPreview:
         preview = self.toolcalls.get(content_index)
@@ -72,12 +95,12 @@ class AssistantBlock:
     def append_toolcall_name(self, content_index: int, delta: str) -> None:
         if not delta:
             return
-        self._ensure_toolcall(content_index).name += delta
+        self._ensure_toolcall(content_index).append_name(delta)
 
     def append_toolcall_args(self, content_index: int, delta: str) -> None:
         if not delta:
             return
-        self._ensure_toolcall(content_index).args += delta
+        self._ensure_toolcall(content_index).append_args(delta)
 
     def set_toolcall_from_message(self, content_index: int, name: str, args_json: str) -> None:
         self.toolcalls[content_index] = ToolcallPreview(name=name, args=args_json)
@@ -145,9 +168,11 @@ class ToolRunBlock:
     is_error: bool = False
     result_summary: str | None = None
     error_detail: str | None = None
+    result: Any = None
     start_time: float = 0.0
     duration: float = 0.0
     _show_details: bool = False
+    _show_diff: bool = False
 
     def mark_done(
         self,
@@ -155,11 +180,13 @@ class ToolRunBlock:
         is_error: bool,
         result_summary: str | None = None,
         error_detail: str | None = None,
+        result: Any = None,
     ) -> None:
         self.status = "done"
         self.is_error = is_error
         self.result_summary = result_summary
         self.error_detail = error_detail
+        self.result = result
         if self.start_time > 0:
             import time
             self.duration = time.time() - self.start_time
@@ -167,6 +194,10 @@ class ToolRunBlock:
     def toggle_details(self) -> None:
         """Toggle error details visibility."""
         self._show_details = not self._show_details
+
+    def toggle_diff(self) -> None:
+        """Toggle diff visibility."""
+        self._show_diff = not self._show_diff
 
     def _key_arg(self) -> str:
         return _extract_tool_key_arg(self.name, self.args)
@@ -191,17 +222,34 @@ class ToolRunBlock:
             line.append(f": {key_arg}", style="dim")
         if self.duration > 0.1:
             line.append(f" ({self.duration:.2f}s)", style="dim")
+
+        # Add diff summary for file changes
+        if not self.is_error and self.result:
+            change_info = extract_file_change_info(self.name, self.args, self.result)
+            if change_info:
+                file_path, old_content, new_content = change_info
+                diff_summary = summarize_diff(old_content, new_content)
+                line.append(f" [{diff_summary}]", style="cyan dim")
+
         if self.result_summary:
             line.append(f" - {self.result_summary}", style="dim")
 
+        parts = [line]
+
         # Show error details if available and expanded
         if self.is_error and self.error_detail and self._show_details:
-            parts = [line]
             detail_text = Text(self.error_detail, style="red dim")
             parts.append(Panel(detail_text, title="Error Details", border_style="red"))
-            return Group(*parts)
 
-        return line
+        # Show diff if available and expanded
+        if not self.is_error and self._show_diff and self.result:
+            change_info = extract_file_change_info(self.name, self.args, self.result)
+            if change_info:
+                file_path, old_content, new_content = change_info
+                diff_view = render_diff(old_content, new_content, file_path)
+                parts.append(Panel(diff_view, title=f"Diff: {file_path}", border_style="cyan"))
+
+        return Group(*parts) if len(parts) > 1 else line
 
 
 @dataclass(slots=True)

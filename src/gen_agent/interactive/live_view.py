@@ -503,10 +503,12 @@ class LiveView:
                 )
                 self._append_entry(block)
                 self._tool_runs[event.tool_call_id] = block
+            result = getattr(event, "result", None)
             block.mark_done(
                 is_error=bool(getattr(event, "is_error", False)),
-                result_summary=self._summarize_tool_result(getattr(event, "result", None)),
+                result_summary=self._summarize_tool_result(result),
                 error_detail=getattr(event, "error_detail", None),
+                result=result,
             )
             self.request_refresh()
             return
