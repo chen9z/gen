@@ -19,8 +19,8 @@ class AgentEnd(ModelBase):
 
 class TurnStart(ModelBase):
     type: Literal["turn_start"] = "turn_start"
-    turn_number: int = Field(alias="turnNumber")
-    max_turns: int = Field(alias="maxTurns")
+    turn_number: int = Field(default=0, alias="turnNumber")
+    max_turns: int = Field(default=0, alias="maxTurns")
 
 
 class TurnEnd(ModelBase):
