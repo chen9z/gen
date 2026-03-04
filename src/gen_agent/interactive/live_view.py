@@ -96,7 +96,7 @@ class LiveView:
 
         # Adaptive refresh
         self._last_activity_time = time.monotonic()
-        self._min_interval = 0.02
+        self._min_interval = 0.05  # 20Hz refresh rate (reduced from 50Hz)
         self._max_interval = 0.2
 
         # Real-time usage tracking
@@ -383,6 +383,8 @@ class LiveView:
         if etype == "agent_end":
             self._working = False
             self._mooning_spinner = None
+            # Clear sticky error on successful completion
+            self._sticky_error_notice = None
             self.request_refresh()
             return
 
@@ -563,7 +565,12 @@ class LiveView:
         if removed is self._draft:
             self._draft = None
         if isinstance(removed, ToolRunBlock):
+            # Clean up all related state for removed tool run
             self._tool_runs.pop(removed.tool_call_id, None)
+        elif isinstance(removed, AssistantBlock):
+            # Clean up toolcall phase tracking for removed assistant block
+            for content_index in list(removed.toolcalls.keys()):
+                self._toolcall_phase.pop(content_index, None)
 
     def _fill_block_from_message(self, block: AssistantBlock, message: AssistantMessage) -> None:
         for item in message.content:
@@ -700,6 +707,10 @@ class LiveView:
             segments.extend(Text(line) for line in lines)
         for _key, lines in sorted(self._widgets_below.items()):
             segments.extend(Text(line) for line in lines)
+
+        # Show keyboard hint when there are entries in the session
+        if self._entries:
+            segments.append(Text("  Ctrl+C to interrupt", style="dim"))
 
         if not segments:
             return Text("")

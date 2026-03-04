@@ -132,7 +132,7 @@ async def run_agent_loop(
     messages = list(context_messages)
 
     emit(AgentStart())
-    emit(TurnStart())
+    emit(TurnStart(turn_number=0, max_turns=max_turns))
 
     for prompt in prompts:
         messages.append(prompt)

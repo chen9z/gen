@@ -249,6 +249,8 @@ class GenInteractiveApp:
             return
         task.cancel()
         self._last_interrupt_time = now
+        # Clean up toolcall phase tracking on interrupt
+        self._live_view._toolcall_phase.clear()
         self._live_view.add_notice("Interrupted (Ctrl+C again to quit)", level="warning")
 
     def _install_sigint_handler(self) -> None:

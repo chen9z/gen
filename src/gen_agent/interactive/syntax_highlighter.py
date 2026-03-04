@@ -138,3 +138,7 @@ class StreamingSyntaxHighlighter:
     def has_code_blocks(self) -> bool:
         """Check if any code blocks have been detected."""
         return bool(self._blocks or self._current_block)
+
+    def clear_buffer(self) -> None:
+        """Clear the internal buffer to free memory after completion."""
+        self._buffer = ""

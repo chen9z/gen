@@ -68,6 +68,7 @@ class AssistantBlock:
     _highlighter: StreamingSyntaxHighlighter = field(default_factory=StreamingSyntaxHighlighter, init=False)
     _text_parts: list[str] = field(default_factory=list, init=False)
     _thinking_parts: list[str] = field(default_factory=list, init=False)
+    _cached_render: RenderableType | None = field(default=None, init=False)
 
     def has_content(self) -> bool:
         return bool(self.text or self.thinking or self.toolcalls or self.error)
@@ -107,6 +108,10 @@ class AssistantBlock:
 
     def finish(self) -> None:
         self.done = True
+        # Clear accumulated lists to free memory (keep only final strings)
+        self._text_parts.clear()
+        self._thinking_parts.clear()
+        self._highlighter.clear_buffer()
 
     @staticmethod
     def _single_line_preview(text: str, limit: int = 140) -> str:
@@ -116,6 +121,10 @@ class AssistantBlock:
         return collapsed[: limit - 3] + "..."
 
     def render(self) -> RenderableType:
+        # Use cached render for completed blocks
+        if self.done and self._cached_render is not None:
+            return self._cached_render
+
         parts: list[RenderableType] = []
 
         if self.thinking:
@@ -156,7 +165,13 @@ class AssistantBlock:
         if self.usage_text:
             parts.append(Text(self.usage_text, style="dim"))
 
-        return Group(*parts) if parts else Text("")
+        result = Group(*parts) if parts else Text("")
+
+        # Cache the render result for completed blocks
+        if self.done:
+            self._cached_render = result
+
+        return result
 
 
 @dataclass(slots=True)

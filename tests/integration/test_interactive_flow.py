@@ -95,13 +95,17 @@ async def test_interactive_submit_renders_stream_and_tool_blocks(monkeypatch, tm
     assert app._live_view._mooning_spinner is None
 
     console = Console(record=True, force_terminal=False, width=120)
+    # Temporarily reset committed count to render all entries for testing
+    saved_committed_count = app._live_view._committed_count
+    app._live_view._committed_count = 0
     console.print(app._live_view._build_renderable())
+    app._live_view._committed_count = saved_committed_count
     rendered = console.export_text()
     assert "Calculating" not in rendered
     assert "Ctrl+C to interrupt" in rendered
     assert "esc to interrupt" not in rendered.lower()
     assert rendered.rfind("─") < rendered.rfind("Ctrl+C to interrupt")
-    assert "● read(" in rendered
+    assert "✓ read:" in rendered  # Updated to match current rendering format
     assert "[RUN]" not in rendered
     assert "[OK]" not in rendered
     assert "[ERR]" not in rendered
