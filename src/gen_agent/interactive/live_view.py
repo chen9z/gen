@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import asyncio
-import json
 import time
 from collections.abc import Sequence
 from typing import Any
@@ -15,13 +14,12 @@ from rich.spinner import Spinner
 from rich.text import Text
 
 from gen_agent.core.agent_session import AgentSession
-from gen_agent.models.content import TextContent, ThinkingContent, ToolCallContent
 from gen_agent.models.events import AgentSessionEvent
 from gen_agent.models.messages import AssistantMessage
 
 from .blocks import AssistantBlock, ToolRunBlock, UserPromptBlock
 from .commit_manager import CommitManager
-from .event_processor import EventProcessor, _format_tokens
+from .event_processor import EventProcessor
 from .render_engine import RenderEngine
 from .state_manager import StateManager
 
@@ -309,7 +307,6 @@ class LiveView:
             return
 
     def _calculate_adaptive_interval(self) -> float:
-        """Calculate adaptive refresh interval based on activity."""
         if self._working:
             return self._min_interval
         time_since = time.monotonic() - self._last_activity_time
@@ -330,23 +327,8 @@ class LiveView:
         self._live.update(self._build_renderable(), refresh=True)
         self._dirty = False
 
-    def _update_realtime_usage(self, delta: str) -> None:
-        """Update real-time usage estimation during streaming."""
-        if not delta:
-            return
-        # Rough estimation: ~4 chars per token
-        estimated_tokens = len(delta) // 4
-        self._current_usage["output"] += estimated_tokens
-        # Update draft block with estimated usage
-        if self._draft and not self._draft.done:
-            parts = []
-            if self._current_usage["output"] > 0:
-                parts.append(f"~{_format_tokens(self._current_usage['output'])} output")
-            if parts:
-                self._draft.usage_text = " · ".join(parts)
-
     # ------------------------------------------------------------------
-    # Commit logic – print done entries above the Live area
+    # Commit logic
     # ------------------------------------------------------------------
 
     def _commit_ready_entries(self) -> None:
@@ -398,7 +380,7 @@ class LiveView:
         self.request_refresh()
 
     # ------------------------------------------------------------------
-    # Extension UI passthrough (kept for API compat)
+    # Extension UI passthrough
     # ------------------------------------------------------------------
 
     def set_title(self, title: str) -> None:
@@ -421,7 +403,6 @@ class LiveView:
         self.request_refresh()
 
     def toggle_last_tool_details(self) -> None:
-        """Toggle details/diff for the last tool run."""
         for entry in reversed(self._entries):
             if isinstance(entry, ToolRunBlock):
                 if entry.is_error and entry.error_detail:
@@ -454,7 +435,7 @@ class LiveView:
 
     def add_assistant_message(self, message: AssistantMessage) -> None:
         block = AssistantBlock(done=True)
-        self._fill_block_from_message(block, message)
+        self._event_processor._fill_block_from_message(block, message)
         if not block.has_content() and message.error_message:
             block.error = message.error_message
         self._append_entry(block)
@@ -468,24 +449,8 @@ class LiveView:
         self._event_processor.process(event)
 
     # ------------------------------------------------------------------
-    # Draft / entry helpers
+    # Entry helpers
     # ------------------------------------------------------------------
-
-    def _start_draft(self) -> None:
-        if self._draft is not None and not self._draft.done:
-            self._draft.finish()
-        block = AssistantBlock(done=False)
-        self._append_entry(block)
-        self._draft = block
-        self._active_toolcall_index = None
-        self._toolcall_phase.clear()
-        self.request_refresh()
-
-    def _ensure_draft(self) -> AssistantBlock:
-        if self._draft is None:
-            self._start_draft()
-        assert self._draft is not None
-        return self._draft
 
     def _append_entry(self, entry: AssistantBlock | ToolRunBlock) -> None:
         self._entries.append(entry)
@@ -497,134 +462,23 @@ class LiveView:
         if removed is self._draft:
             self._draft = None
         if isinstance(removed, ToolRunBlock):
-            # Clean up all related state for removed tool run
             self._tool_runs.pop(removed.tool_call_id, None)
         elif isinstance(removed, AssistantBlock):
-            # Clean up toolcall phase tracking for removed assistant block
             for content_index in list(removed.toolcalls.keys()):
                 self._toolcall_phase.pop(content_index, None)
 
-    def _fill_block_from_message(self, block: AssistantBlock, message: AssistantMessage) -> None:
-        for item in message.content:
-            if isinstance(item, TextContent):
-                block.append_text(item.text)
-            elif isinstance(item, ThinkingContent):
-                block.append_thinking(item.thinking)
-            elif isinstance(item, ToolCallContent):
-                payload = json.dumps(item.arguments, ensure_ascii=False)
-                block.set_toolcall_from_message(len(block.toolcalls), item.name, payload)
-
-    def _clear_mooning_spinner(self) -> None:
-        if self._mooning_spinner is None:
-            return
-        self._mooning_spinner = None
-        self.request_refresh()
-
-    def _append_toolcall_delta(
-        self, block: AssistantBlock, content_index: int | None, delta: str
-    ) -> None:
-        if not delta:
-            return
-        index = content_index if isinstance(content_index, int) else self._active_toolcall_index
-        if index is None:
-            index = -1
-        else:
-            self._active_toolcall_index = index
-
-        phase = self._toolcall_phase.get(index, "name")
-        stripped = delta.lstrip()
-        if phase == "name":
-            if stripped in {"(", ")"}:
-                return
-
-            start_positions = [
-                pos for marker in ("{", "[") if (pos := delta.find(marker)) >= 0
-            ]
-            boundary = min(start_positions) if start_positions else -1
-
-            if boundary >= 0:
-                name_part = delta[:boundary].rstrip(" (")
-                args_part = delta[boundary:]
-                if name_part:
-                    block.append_toolcall_name(index, name_part)
-                if args_part:
-                    block.append_toolcall_args(index, args_part)
-                    self._toolcall_phase[index] = "args"
-                return
-
-            if stripped.startswith(("{", "[", "\"", ":", ",")):
-                block.append_toolcall_args(index, delta)
-                self._toolcall_phase[index] = "args"
-                return
-
-            block.append_toolcall_name(index, delta)
-            self._toolcall_phase.setdefault(index, "name")
-            return
-
-        if phase in {"args", "done"}:
-            block.append_toolcall_args(index, delta)
-            self._toolcall_phase[index] = "args"
-            return
-        block.append_toolcall_name(index, delta)
-
     # ------------------------------------------------------------------
-    # Tool result summarisation
-    # ------------------------------------------------------------------
-
-    @staticmethod
-    def _truncate_single_line(text: str, limit: int) -> str:
-        collapsed = " ".join(text.split())
-        if len(collapsed) <= limit:
-            return collapsed
-        return collapsed[: max(0, limit - 3)] + "..."
-
-    def _summarize_tool_result(self, result: Any, limit: int = 96) -> str | None:
-        if result is None:
-            return None
-        if isinstance(result, dict):
-            is_error = bool(result.get("isError") or result.get("is_error"))
-            content = result.get("content")
-            if isinstance(content, list):
-                for item in content:
-                    if isinstance(item, dict):
-                        text = item.get("text")
-                        if isinstance(text, str) and text.strip():
-                            summary = self._truncate_single_line(text, limit)
-                            return f"error: {summary}" if is_error else summary
-
-            details = result.get("details")
-            if details not in (None, "", [], {}):
-                if isinstance(details, dict):
-                    for key in ("brief", "message", "summary", "error", "reason"):
-                        value = details.get(key)
-                        if isinstance(value, str) and value.strip():
-                            summary = self._truncate_single_line(value, limit)
-                            return f"error: {summary}" if is_error else summary
-                try:
-                    details_text = json.dumps(details, ensure_ascii=False)
-                except TypeError:
-                    details_text = str(details)
-                summary = self._truncate_single_line(details_text, limit)
-                return f"error: {summary}" if is_error else summary
-
-        fallback = self._truncate_single_line(str(result), limit)
-        return fallback or None
-
-    # ------------------------------------------------------------------
-    # Renderable builder – only uncommitted / active entries
+    # Renderable builder
     # ------------------------------------------------------------------
 
     def _build_renderable(self) -> RenderableType:
-        # Build content sections
         header_parts: list[RenderableType] = []
         main_parts: list[RenderableType] = []
         footer_parts: list[RenderableType] = []
 
-        # Header: widgets above
         for _key, lines in sorted(self._widgets_above.items()):
             header_parts.extend(Text(line) for line in lines)
 
-        # Main: active entries
         active_entries = self._entries[self._committed_count:]
         for entry in active_entries:
             main_parts.append(entry.render())
@@ -632,27 +486,21 @@ class LiveView:
         if self._mooning_spinner is not None and not active_entries:
             main_parts.append(self._mooning_spinner)
 
-        # Main: notices
         notices = self._active_notices()
         if notices:
             level, text = notices[-1]
             color = {"info": "dim", "warning": "yellow", "error": "red"}.get(level, "dim")
             main_parts.append(Text(f"  {text}", style=color))
 
-        # Main: turn progress
         if self._working and self._current_turn > 0 and self._max_turns > 0:
-            turn_text = Text(f"  Turn {self._current_turn}/{self._max_turns}", style="dim")
-            main_parts.append(turn_text)
+            main_parts.append(Text(f"  Turn {self._current_turn}/{self._max_turns}", style="dim"))
 
-        # Footer: widgets below
         for _key, lines in sorted(self._widgets_below.items()):
             footer_parts.extend(Text(line) for line in lines)
 
-        # Footer: keyboard hint
         if self._entries:
             footer_parts.append(Text("  Ctrl+C to interrupt", style="dim"))
 
-        # Use Layout if we have multiple sections, otherwise simple Group
         has_header = bool(header_parts)
         has_footer = bool(footer_parts)
         has_main = bool(main_parts)
@@ -660,20 +508,16 @@ class LiveView:
         if not (has_header or has_footer or has_main):
             return Text("")
 
-        # Simple case: only main content
         if not has_header and not has_footer:
             return Group(*main_parts) if main_parts else Text("")
 
-        # Use Layout for structured layout
         layout = Layout()
         sections = []
 
         if has_header:
             sections.append(Layout(Group(*header_parts), name="header", size=len(header_parts)))
-
         if has_main:
             sections.append(Layout(Group(*main_parts), name="main"))
-
         if has_footer:
             sections.append(Layout(Group(*footer_parts), name="footer", size=len(footer_parts)))
 

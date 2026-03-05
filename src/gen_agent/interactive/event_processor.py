@@ -48,6 +48,46 @@ def _format_usage(message: AssistantMessage) -> str:
     return " · ".join(parts)
 
 
+def _truncate_single_line(text: str, limit: int) -> str:
+    collapsed = " ".join(text.split())
+    if len(collapsed) <= limit:
+        return collapsed
+    return collapsed[: max(0, limit - 3)] + "..."
+
+
+def _summarize_tool_result(result: Any, limit: int = 96) -> str | None:
+    if result is None:
+        return None
+    if isinstance(result, dict):
+        is_error = bool(result.get("isError") or result.get("is_error"))
+        content = result.get("content")
+        if isinstance(content, list):
+            for item in content:
+                if isinstance(item, dict):
+                    text = item.get("text")
+                    if isinstance(text, str) and text.strip():
+                        summary = _truncate_single_line(text, limit)
+                        return f"error: {summary}" if is_error else summary
+
+        details = result.get("details")
+        if details not in (None, "", [], {}):
+            if isinstance(details, dict):
+                for key in ("brief", "message", "summary", "error", "reason"):
+                    value = details.get(key)
+                    if isinstance(value, str) and value.strip():
+                        summary = _truncate_single_line(value, limit)
+                        return f"error: {summary}" if is_error else summary
+            try:
+                details_text = json.dumps(details, ensure_ascii=False)
+            except TypeError:
+                details_text = str(details)
+            summary = _truncate_single_line(details_text, limit)
+            return f"error: {summary}" if is_error else summary
+
+    fallback = _truncate_single_line(str(result), limit)
+    return fallback or None
+
+
 class EventProcessor:
     """Processes session events using a dispatch table."""
 
@@ -86,6 +126,104 @@ class EventProcessor:
         handler = self._dispatch.get(etype)
         if handler is not None:
             handler(event)
+
+    # -- Draft / entry helpers (migrated from LiveView) --------------------
+
+    def _start_draft(self) -> None:
+        v = self._view
+        if v._draft is not None and not v._draft.done:
+            v._draft.finish()
+        block = AssistantBlock(done=False)
+        v._append_entry(block)
+        v._draft = block
+        v._active_toolcall_index = None
+        v._toolcall_phase.clear()
+        v.request_refresh()
+
+    def _ensure_draft(self) -> AssistantBlock:
+        if self._view._draft is None:
+            self._start_draft()
+        assert self._view._draft is not None
+        return self._view._draft
+
+    def _fill_block_from_message(
+        self, block: AssistantBlock, message: AssistantMessage
+    ) -> None:
+        for item in message.content:
+            if isinstance(item, TextContent):
+                block.append_text(item.text)
+            elif isinstance(item, ThinkingContent):
+                block.append_thinking(item.thinking)
+            elif isinstance(item, ToolCallContent):
+                payload = json.dumps(item.arguments, ensure_ascii=False)
+                block.set_toolcall_from_message(len(block.toolcalls), item.name, payload)
+
+    def _clear_mooning_spinner(self) -> None:
+        if self._view._mooning_spinner is None:
+            return
+        self._view._mooning_spinner = None
+        self._view.request_refresh()
+
+    def _update_realtime_usage(self, delta: str) -> None:
+        if not delta:
+            return
+        v = self._view
+        estimated_tokens = len(delta) // 4
+        v._current_usage["output"] += estimated_tokens
+        if v._draft and not v._draft.done:
+            parts = []
+            if v._current_usage["output"] > 0:
+                parts.append(f"~{_format_tokens(v._current_usage['output'])} output")
+            if parts:
+                v._draft.usage_text = " · ".join(parts)
+
+    def _append_toolcall_delta(
+        self, block: AssistantBlock, content_index: int | None, delta: str
+    ) -> None:
+        if not delta:
+            return
+        v = self._view
+        index = content_index if isinstance(content_index, int) else v._active_toolcall_index
+        if index is None:
+            index = -1
+        else:
+            v._active_toolcall_index = index
+
+        phase = v._toolcall_phase.get(index, "name")
+        stripped = delta.lstrip()
+        if phase == "name":
+            if stripped in {"(", ")"}:
+                return
+
+            start_positions = [
+                pos for marker in ("{", "[") if (pos := delta.find(marker)) >= 0
+            ]
+            boundary = min(start_positions) if start_positions else -1
+
+            if boundary >= 0:
+                name_part = delta[:boundary].rstrip(" (")
+                args_part = delta[boundary:]
+                if name_part:
+                    block.append_toolcall_name(index, name_part)
+                if args_part:
+                    block.append_toolcall_args(index, args_part)
+                    v._toolcall_phase[index] = "args"
+                return
+
+            if stripped.startswith(("{", "[", "\"", ":", ",")):
+                block.append_toolcall_args(index, delta)
+                v._toolcall_phase[index] = "args"
+                return
+
+            block.append_toolcall_name(index, delta)
+            v._toolcall_phase.setdefault(index, "name")
+            return
+
+        if phase in {"args", "done"}:
+            block.append_toolcall_args(index, delta)
+            v._toolcall_phase[index] = "args"
+            return
+        block.append_toolcall_name(index, delta)
 
     # -- Top-level handlers ------------------------------------------------
 
@@ -127,7 +265,7 @@ class EventProcessor:
         message = getattr(event, "message", None)
         if getattr(message, "role", "") != "assistant":
             return
-        self._view._clear_mooning_spinner()
+        self._clear_mooning_spinner()
 
         assistant_event = getattr(event, "assistant_message_event", None)
         a_type = getattr(assistant_event, "type", "")
@@ -140,7 +278,7 @@ class EventProcessor:
 
     def _on_tool_start(self, event: Any) -> None:
         v = self._view
-        v._clear_mooning_spinner()
+        self._clear_mooning_spinner()
         block = ToolRunBlock(
             tool_call_id=event.tool_call_id,
             name=event.tool_name,
@@ -154,7 +292,7 @@ class EventProcessor:
 
     def _on_tool_end(self, event: Any) -> None:
         v = self._view
-        v._clear_mooning_spinner()
+        self._clear_mooning_spinner()
         block = v._tool_runs.get(event.tool_call_id)
         if block is None:
             block = ToolRunBlock(
@@ -167,22 +305,22 @@ class EventProcessor:
         result = getattr(event, "result", None)
         block.mark_done(
             is_error=bool(getattr(event, "is_error", False)),
-            result_summary=v._summarize_tool_result(result),
+            result_summary=_summarize_tool_result(result),
             error_detail=getattr(event, "error_detail", None),
             result=result,
         )
         v.request_refresh()
 
     def _on_compaction_start(self, event: Any) -> None:
-        self._view._clear_mooning_spinner()
+        self._clear_mooning_spinner()
         self._view.add_notice(f"Auto compact: {event.reason}", level="warning")
 
     def _on_compaction_end(self, event: Any) -> None:
-        self._view._clear_mooning_spinner()
+        self._clear_mooning_spinner()
         self._view.add_notice("Auto compact done", level="info")
 
     def _on_retry_start(self, event: Any) -> None:
-        self._view._clear_mooning_spinner()
+        self._clear_mooning_spinner()
         self._view.add_notice(
             f"Retry {event.attempt}/{event.max_attempts} in {event.delay_ms}ms: "
             f"{event.error_message}",
@@ -191,29 +329,28 @@ class EventProcessor:
 
     def _on_retry_end(self, event: Any) -> None:
         if not event.success:
-            self._view._clear_mooning_spinner()
+            self._clear_mooning_spinner()
             self._view.add_notice(f"Retry failed: {event.final_error}", level="error")
 
     # -- Message update sub-handlers ---------------------------------------
 
     def _on_msg_start(self, message: Any, ae: Any, delta: str, ci: int | None) -> None:
-        v = self._view
-        v._stream_tick += 1
-        v._start_draft()
+        self._view._stream_tick += 1
+        self._start_draft()
 
     def _on_msg_text_delta(self, message: Any, ae: Any, delta: str, ci: int | None) -> None:
         v = self._view
         v._stream_tick += 1
-        v._ensure_draft().append_text(delta)
-        v._update_realtime_usage(delta)
+        self._ensure_draft().append_text(delta)
+        self._update_realtime_usage(delta)
         v._last_activity_time = time.monotonic()
         v.request_refresh()
 
     def _on_msg_thinking_delta(self, message: Any, ae: Any, delta: str, ci: int | None) -> None:
         v = self._view
         v._stream_tick += 1
-        v._ensure_draft().append_thinking(delta)
-        v._update_realtime_usage(delta)
+        self._ensure_draft().append_thinking(delta)
+        self._update_realtime_usage(delta)
         v._last_activity_time = time.monotonic()
         v.request_refresh()
 
@@ -228,7 +365,7 @@ class EventProcessor:
     def _on_msg_toolcall_delta(self, message: Any, ae: Any, delta: str, ci: int | None) -> None:
         v = self._view
         v._stream_tick += 1
-        v._append_toolcall_delta(v._ensure_draft(), ci, delta)
+        self._append_toolcall_delta(self._ensure_draft(), ci, delta)
         v.request_refresh()
 
     def _on_msg_toolcall_end(self, message: Any, ae: Any, delta: str, ci: int | None) -> None:
@@ -241,10 +378,10 @@ class EventProcessor:
     def _on_msg_error(self, message: Any, ae: Any, delta: str, ci: int | None) -> None:
         v = self._view
         v._stream_tick += 1
-        block = v._ensure_draft()
+        block = self._ensure_draft()
         block.error = getattr(ae, "error", "") or "provider_error"
         if not block.has_content() and isinstance(message, AssistantMessage):
-            v._fill_block_from_message(block, message)
+            self._fill_block_from_message(block, message)
         block.finish()
         v._draft = None
         v._active_toolcall_index = None
@@ -254,9 +391,9 @@ class EventProcessor:
     def _on_msg_done(self, message: Any, ae: Any, delta: str, ci: int | None) -> None:
         v = self._view
         v._stream_tick += 1
-        block = v._ensure_draft()
+        block = self._ensure_draft()
         if not block.has_content() and isinstance(message, AssistantMessage):
-            v._fill_block_from_message(block, message)
+            self._fill_block_from_message(block, message)
         block.finish()
         v._draft = None
         v._active_toolcall_index = None
