@@ -20,6 +20,7 @@ from gen_agent.models.events import AgentSessionEvent
 from gen_agent.models.messages import AssistantMessage
 
 from .blocks import AssistantBlock, ToolRunBlock, UserPromptBlock
+from .state_manager import StateManager
 
 _NOTICE_TTL_SECONDS = {"info": 2.5, "warning": 4.0, "error": 6.0}
 _MAX_VISIBLE_NOTICES = 2
@@ -79,16 +80,9 @@ class LiveView:
         self._status_items: dict[str, str] = {}
         self._notices: list[tuple[str, str, float]] = []
 
-        self._entries: list[AssistantBlock | ToolRunBlock] = []
-        self._tool_runs: dict[str, ToolRunBlock] = {}
-        self._draft: AssistantBlock | None = None
-        self._active_toolcall_index: int | None = None
-        self._toolcall_phase: dict[int, str] = {}
-        self._sticky_error_notice: str | None = None
-        self._working = False
-        self._mooning_spinner: Spinner | None = None
+        # Initialize state manager
+        self._state = StateManager(entry_limit=entry_limit)
 
-        self._committed_count = 0
         self._stream_tick = 0
         self._dirty = True
 
@@ -99,13 +93,6 @@ class LiveView:
         self._last_activity_time = time.monotonic()
         self._min_interval = 0.05  # 20Hz refresh rate (reduced from 50Hz)
         self._max_interval = 0.2
-
-        # Real-time usage tracking
-        self._current_usage = {"input": 0, "output": 0, "cost": 0.0}
-
-        # Turn progress tracking
-        self._current_turn = 0
-        self._max_turns = 0
 
     # ------------------------------------------------------------------
     # Properties
@@ -118,6 +105,89 @@ class LiveView:
     @property
     def console(self) -> Console:
         return self._console
+
+    # Compatibility properties for state access (delegate to StateManager)
+    @property
+    def _entries(self) -> list[AssistantBlock | ToolRunBlock]:
+        return self._state.get_entries()
+
+    @property
+    def _draft(self) -> AssistantBlock | None:
+        return self._state.get_draft()
+
+    @_draft.setter
+    def _draft(self, value: AssistantBlock | None) -> None:
+        self._state.set_draft(value)
+
+    @property
+    def _tool_runs(self) -> dict[str, ToolRunBlock]:
+        return self._state._tool_runs
+
+    @property
+    def _working(self) -> bool:
+        return self._state.is_working()
+
+    @_working.setter
+    def _working(self, value: bool) -> None:
+        self._state.set_working(value)
+
+    @property
+    def _sticky_error_notice(self) -> str | None:
+        return self._state.get_sticky_error_notice()
+
+    @_sticky_error_notice.setter
+    def _sticky_error_notice(self, value: str | None) -> None:
+        self._state.set_sticky_error_notice(value)
+
+    @property
+    def _mooning_spinner(self) -> Spinner | None:
+        return self._state.get_mooning_spinner()
+
+    @_mooning_spinner.setter
+    def _mooning_spinner(self, value: Spinner | None) -> None:
+        self._state.set_mooning_spinner(value)
+
+    @property
+    def _committed_count(self) -> int:
+        return self._state.get_committed_count()
+
+    @_committed_count.setter
+    def _committed_count(self, value: int) -> None:
+        self._state.set_committed_count(value)
+
+    @property
+    def _current_usage(self) -> dict[str, Any]:
+        return self._state.get_current_usage()
+
+    @property
+    def _current_turn(self) -> int:
+        return self._state.get_turn_progress()[0]
+
+    @_current_turn.setter
+    def _current_turn(self, value: int) -> None:
+        _, max_turns = self._state.get_turn_progress()
+        self._state.set_turn_progress(value, max_turns)
+
+    @property
+    def _max_turns(self) -> int:
+        return self._state.get_turn_progress()[1]
+
+    @_max_turns.setter
+    def _max_turns(self, value: int) -> None:
+        current, _ = self._state.get_turn_progress()
+        self._state.set_turn_progress(current, value)
+
+    @property
+    def _active_toolcall_index(self) -> int | None:
+        return self._state.get_active_toolcall_index()
+
+    @_active_toolcall_index.setter
+    def _active_toolcall_index(self, value: int | None) -> None:
+        self._state.set_active_toolcall_index(value)
+
+    @property
+    def _toolcall_phase(self) -> dict[int, str]:
+        return self._state._toolcall_phase
 
     # ------------------------------------------------------------------
     # Welcome banner
@@ -176,7 +246,7 @@ class LiveView:
         self._working = False
         self._notices.clear()
         self._sticky_error_notice = None
-        self._current_usage = {"input": 0, "output": 0, "cost": 0.0}
+        self._state.reset_usage()
         self._last_activity_time = time.monotonic()
         self._stream_tick = 0
 
