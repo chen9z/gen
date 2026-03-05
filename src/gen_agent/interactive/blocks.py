@@ -249,6 +249,16 @@ class ToolRunBlock:
         if self.result_summary:
             line.append(f" - {self.result_summary}", style="dim")
 
+        # Add visual indicators for expandable content
+        if self.is_error and self.error_detail:
+            indicator = "▼" if self._show_details else "▶"
+            line.append(f" {indicator}", style="dim")
+        elif not self.is_error and self.result:
+            change_info = extract_file_change_info(self.name, self.args, self.result)
+            if change_info:
+                indicator = "▼" if self._show_diff else "▶"
+                line.append(f" {indicator}", style="dim")
+
         parts = [line]
 
         # Show error details if available and expanded

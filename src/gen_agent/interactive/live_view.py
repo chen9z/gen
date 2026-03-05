@@ -336,6 +336,17 @@ class LiveView:
     def toggle_status_detail(self) -> None:
         self.request_refresh()
 
+    def toggle_last_tool_details(self) -> None:
+        """Toggle details/diff for the last tool run."""
+        for entry in reversed(self._entries):
+            if isinstance(entry, ToolRunBlock):
+                if entry.is_error and entry.error_detail:
+                    entry.toggle_details()
+                elif not entry.is_error and entry.result:
+                    entry.toggle_diff()
+                self.request_refresh()
+                break
+
     def set_widget(self, key: str, lines: Sequence[str] | None, *, placement: str) -> None:
         if placement == "below_editor":
             target = self._widgets_below

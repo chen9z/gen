@@ -352,6 +352,10 @@ class GenInteractiveApp:
     async def toggle_status_detail(self) -> None:
         self._live_view.toggle_status_detail()
 
+    async def toggle_tool_details(self) -> None:
+        """Toggle error details for the last tool run."""
+        self._live_view.toggle_last_tool_details()
+
     async def run_async(self) -> int:
         if self.session.ui_extensions_enabled:
             self.session.bind_ui_context(PtkExtensionUIContext(self))
