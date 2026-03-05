@@ -21,40 +21,12 @@ from gen_agent.models.messages import AssistantMessage
 
 from .blocks import AssistantBlock, ToolRunBlock, UserPromptBlock
 from .commit_manager import CommitManager
+from .event_processor import EventProcessor, _format_tokens
 from .render_engine import RenderEngine
 from .state_manager import StateManager
 
 _NOTICE_TTL_SECONDS = {"info": 2.5, "warning": 4.0, "error": 6.0}
 _MAX_VISIBLE_NOTICES = 2
-
-
-def _format_tokens(n: int) -> str:
-    if n <= 0:
-        return "0"
-    if n < 1000:
-        return str(n)
-    if n < 10_000:
-        return f"{n / 1000:.1f}k"
-    return f"{n // 1000}k"
-
-
-def _format_usage(message: AssistantMessage) -> str:
-    usage = message.usage
-    if usage.total_tokens <= 0 and usage.input <= 0 and usage.output <= 0:
-        return ""
-    parts: list[str] = []
-    if message.provider or message.model:
-        parts.append(f"{message.provider}/{message.model}")
-    if usage.input > 0:
-        parts.append(f"{_format_tokens(usage.input)} input")
-    if usage.output > 0:
-        parts.append(f"{_format_tokens(usage.output)} output")
-    if usage.cache_read > 0:
-        parts.append(f"{_format_tokens(usage.cache_read)} cache read")
-    cost = usage.cost.total
-    if cost > 0:
-        parts.append(f"${cost:.4f}" if cost < 0.01 else f"${cost:.2f}")
-    return " · ".join(parts)
 
 
 class LiveView:
@@ -90,6 +62,9 @@ class LiveView:
 
         # Initialize render engine
         self._render_engine = RenderEngine(self._console, batch_interval)
+
+        # Initialize event processor
+        self._event_processor = EventProcessor(self)
 
         self._stream_tick = 0
 
@@ -490,170 +465,7 @@ class LiveView:
     # ------------------------------------------------------------------
 
     def on_session_event(self, event: AgentSessionEvent) -> None:
-        etype = getattr(event, "type", "")
-
-        if etype == "agent_start":
-            self._working = True
-            self._mooning_spinner = Spinner("dots", "")
-            self._sticky_error_notice = None
-            self._current_turn = 0
-            self._max_turns = 0
-            self.request_refresh()
-            return
-        if etype == "agent_end":
-            self._working = False
-            self._mooning_spinner = None
-            # Clear sticky error on successful completion
-            self._sticky_error_notice = None
-            self.request_refresh()
-            return
-
-        if etype == "turn_start":
-            self._current_turn = getattr(event, "turn_number", 0)
-            self._max_turns = getattr(event, "max_turns", 0)
-            self.request_refresh()
-            return
-
-        if etype == "message_end":
-            message = getattr(event, "message", None)
-            if isinstance(message, AssistantMessage):
-                usage_text = _format_usage(message)
-                if usage_text:
-                    for entry in reversed(self._entries):
-                        if isinstance(entry, AssistantBlock):
-                            entry.usage_text = usage_text
-                            self.request_refresh()
-                            break
-            return
-
-        if etype == "message_update":
-            message = getattr(event, "message", None)
-            if getattr(message, "role", "") != "assistant":
-                return
-            self._clear_mooning_spinner()
-
-            assistant_event = getattr(event, "assistant_message_event", None)
-            a_type = getattr(assistant_event, "type", "")
-            delta = getattr(assistant_event, "delta", "") or ""
-            content_index = getattr(assistant_event, "content_index", None)
-
-            if a_type == "start":
-                self._stream_tick += 1
-                self._start_draft()
-                return
-            if a_type == "text_delta":
-                self._stream_tick += 1
-                self._ensure_draft().append_text(delta)
-                self._update_realtime_usage(delta)
-                self._last_activity_time = time.monotonic()
-                self.request_refresh()
-                return
-            if a_type == "thinking_delta":
-                self._stream_tick += 1
-                self._ensure_draft().append_thinking(delta)
-                self._update_realtime_usage(delta)
-                self._last_activity_time = time.monotonic()
-                self.request_refresh()
-                return
-            if a_type == "toolcall_start":
-                self._stream_tick += 1
-                if isinstance(content_index, int):
-                    self._active_toolcall_index = content_index
-                    self._toolcall_phase[content_index] = "name"
-                self.request_refresh()
-                return
-            if a_type == "toolcall_delta":
-                self._stream_tick += 1
-                self._append_toolcall_delta(self._ensure_draft(), content_index, delta)
-                self.request_refresh()
-                return
-            if a_type == "toolcall_end":
-                self._stream_tick += 1
-                if isinstance(content_index, int):
-                    self._toolcall_phase[content_index] = "done"
-                self.request_refresh()
-                return
-            if a_type == "error":
-                self._stream_tick += 1
-                block = self._ensure_draft()
-                block.error = getattr(assistant_event, "error", "") or "provider_error"
-                if not block.has_content() and isinstance(message, AssistantMessage):
-                    self._fill_block_from_message(block, message)
-                block.finish()
-                self._draft = None
-                self._active_toolcall_index = None
-                # Clean up toolcall phase tracking to prevent memory leaks
-                self._toolcall_phase.clear()
-                self.request_refresh()
-                return
-            if a_type == "done":
-                self._stream_tick += 1
-                block = self._ensure_draft()
-                if not block.has_content() and isinstance(message, AssistantMessage):
-                    self._fill_block_from_message(block, message)
-                block.finish()
-                self._draft = None
-                self._active_toolcall_index = None
-                # Clean up toolcall phase tracking to prevent memory leaks
-                self._toolcall_phase.clear()
-                self.request_refresh()
-                return
-            return
-
-        if etype == "tool_execution_start":
-            self._clear_mooning_spinner()
-            block = ToolRunBlock(
-                tool_call_id=event.tool_call_id,
-                name=event.tool_name,
-                args=event.args,
-                start_time=time.time(),
-            )
-            self._tool_runs[event.tool_call_id] = block
-            self._append_entry(block)
-            self._last_activity_time = time.monotonic()
-            self.request_refresh()
-            return
-
-        if etype == "tool_execution_end":
-            self._clear_mooning_spinner()
-            block = self._tool_runs.get(event.tool_call_id)
-            if block is None:
-                block = ToolRunBlock(
-                    tool_call_id=event.tool_call_id,
-                    name=event.tool_name,
-                    args={},
-                )
-                self._append_entry(block)
-                self._tool_runs[event.tool_call_id] = block
-            result = getattr(event, "result", None)
-            block.mark_done(
-                is_error=bool(getattr(event, "is_error", False)),
-                result_summary=self._summarize_tool_result(result),
-                error_detail=getattr(event, "error_detail", None),
-                result=result,
-            )
-            self.request_refresh()
-            return
-
-        if etype == "auto_compaction_start":
-            self._clear_mooning_spinner()
-            self.add_notice(f"Auto compact: {event.reason}", level="warning")
-            return
-        if etype == "auto_compaction_end":
-            self._clear_mooning_spinner()
-            self.add_notice("Auto compact done", level="info")
-            return
-        if etype == "auto_retry_start":
-            self._clear_mooning_spinner()
-            self.add_notice(
-                f"Retry {event.attempt}/{event.max_attempts} in {event.delay_ms}ms: "
-                f"{event.error_message}",
-                level="warning",
-            )
-            return
-        if etype == "auto_retry_end" and not event.success:
-            self._clear_mooning_spinner()
-            self.add_notice(f"Retry failed: {event.final_error}", level="error")
+        self._event_processor.process(event)
 
     # ------------------------------------------------------------------
     # Draft / entry helpers
