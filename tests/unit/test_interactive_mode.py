@@ -154,10 +154,10 @@ async def test_run_interactive_mode_falls_back_to_print_when_not_tty(monkeypatch
 
 def test_interactive_prompt_prefix_uses_single_style() -> None:
     app = GenInteractiveApp(_DummySession())
-    assert app._editor_prompt_prefix() == "❯ "
+    assert app._editor_prompt_prefix() == "› "
 
     app.set_editor_component(CustomEditorComponent(placeholder="input"))
-    assert app._editor_prompt_prefix() == "❯ input: "
+    assert app._editor_prompt_prefix() == "› input: "
 
 
 class _InterruptibleSession(_DummySession):

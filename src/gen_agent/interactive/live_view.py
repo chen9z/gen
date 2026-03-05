@@ -233,7 +233,8 @@ class LiveView:
     # ------------------------------------------------------------------
 
     def print_prompt_separator(self) -> None:
-        self._console.print()
+        width = self._console.width
+        self._console.print(Text("─" * width, style="dim"))
 
     def print_user_prompt(self, message: str) -> None:
         self._console.print()
@@ -280,8 +281,14 @@ class LiveView:
 
         if self._live is not None:
             self._commit_ready_entries()
-            self._dirty = True
-            self._flush_render()
+            # Only flush if there are still active (uncommitted) entries,
+            # otherwise Live.stop() would write empty content to scrollback
+            # causing a visible "page clear" between turns.
+            active = self._entries[self._committed_count:]
+            if active:
+                self._dirty = True
+                self._flush_render()
+            self._live.update(Text(""), refresh=False)
             self._live.stop()
             self._live = None
 

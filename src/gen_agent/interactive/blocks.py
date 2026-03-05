@@ -264,7 +264,7 @@ class UserPromptBlock:
 
     def render(self) -> RenderableType:
         t = Text()
-        t.append("❯ ", style="bold magenta")
+        t.append("› ", style="bold magenta")
         t.append(self.content, style="bold")
         return t
 

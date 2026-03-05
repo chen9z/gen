@@ -4,6 +4,7 @@ from collections.abc import Callable, Sequence
 from pathlib import Path
 
 from prompt_toolkit import PromptSession
+from prompt_toolkit.application.current import get_app_or_none
 from prompt_toolkit.buffer import Buffer, CompletionState
 from prompt_toolkit.history import InMemoryHistory
 from prompt_toolkit.key_binding import KeyBindings, KeyBindingsBase, merge_key_bindings
@@ -78,6 +79,10 @@ class InteractivePromptSession:
                 "completion-menu": "bg:#1f2430 #d5def5",
                 "completion-menu.completion.current": "bg:#2f67d8 #ffffff",
                 "completion-menu.meta.completion.current": "bg:#2f67d8 #ffffff",
+                # Remove default reverse-video on bottom toolbar so it blends
+                # with the terminal background instead of showing a white bar.
+                "bottom-toolbar": "noreverse",
+                "bottom-toolbar.text": "#555555",
             }
         )
         self._session = PromptSession(
@@ -93,7 +98,20 @@ class InteractivePromptSession:
         )
 
     async def prompt_async(self, prompt: str, *, default: str = "") -> str:
-        return await self._session.prompt_async(prompt, default=default)
+        return await self._session.prompt_async(
+            prompt, default=default, bottom_toolbar=self._bottom_toolbar,
+        )
+
+    @staticmethod
+    def _bottom_toolbar() -> str:
+        app = get_app_or_none()
+        cols = 80
+        if app is not None:
+            try:
+                cols = int(app.output.get_size().columns)
+            except Exception:
+                pass
+        return "─" * max(cols, 1)
 
     def record_submission(self, text: str) -> None:
         self._history_store.append(text)

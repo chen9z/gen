@@ -233,8 +233,8 @@ class GenInteractiveApp:
 
     def _editor_prompt_prefix(self) -> str:
         if self._editor_component and self._editor_component.placeholder:
-            return f"❯ {self._editor_component.placeholder}: "
-        return "❯ "
+            return f"› {self._editor_component.placeholder}: "
+        return "› "
 
     def _cancel_active_run(self) -> None:
         now = time.monotonic()
