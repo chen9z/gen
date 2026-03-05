@@ -20,6 +20,7 @@ from gen_agent.models.events import AgentSessionEvent
 from gen_agent.models.messages import AssistantMessage
 
 from .blocks import AssistantBlock, ToolRunBlock, UserPromptBlock
+from .commit_manager import CommitManager
 from .state_manager import StateManager
 
 _NOTICE_TTL_SECONDS = {"info": 2.5, "warning": 4.0, "error": 6.0}
@@ -82,6 +83,9 @@ class LiveView:
 
         # Initialize state manager
         self._state = StateManager(entry_limit=entry_limit)
+
+        # Initialize commit manager
+        self._commit_manager = CommitManager(self._console)
 
         self._stream_tick = 0
         self._dirty = True
@@ -335,16 +339,14 @@ class LiveView:
     # ------------------------------------------------------------------
 
     def _commit_ready_entries(self) -> None:
-        while self._committed_count < len(self._entries):
-            entry = self._entries[self._committed_count]
-            if isinstance(entry, AssistantBlock) and not entry.done:
-                break
-            if isinstance(entry, ToolRunBlock) and entry.status != "done":
-                break
-            if self._live is not None:
-                self._console.print(entry.render())
-                self._console.print()
-            self._committed_count += 1
+        if self._live is None:
+            return
+        new_count = self._commit_manager.commit_ready_entries(
+            self._entries,
+            self._committed_count,
+        )
+        if new_count > self._committed_count:
+            self._committed_count = new_count
             self._dirty = True
 
     # ------------------------------------------------------------------
