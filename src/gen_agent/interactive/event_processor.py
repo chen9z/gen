@@ -170,12 +170,6 @@ class EventProcessor:
         v = self._view
         estimated_tokens = len(delta) // 4
         v._current_usage["output"] += estimated_tokens
-        if v._draft and not v._draft.done:
-            parts = []
-            if v._current_usage["output"] > 0:
-                parts.append(f"~{_format_tokens(v._current_usage['output'])} output")
-            if parts:
-                v._draft.usage_text = " · ".join(parts)
 
     def _append_toolcall_delta(
         self, block: AssistantBlock, content_index: int | None, delta: str
@@ -256,8 +250,8 @@ class EventProcessor:
             usage_text = _format_usage(message)
             if usage_text:
                 for entry in reversed(v._entries):
-                    if isinstance(entry, AssistantBlock):
-                        entry.usage_text = usage_text
+                    if isinstance(entry, AssistantBlock) and (entry.text or entry.error):
+                        entry.set_usage_text(usage_text)
                         v.request_refresh()
                         break
 
@@ -303,9 +297,10 @@ class EventProcessor:
             v._append_entry(block)
             v._tool_runs[event.tool_call_id] = block
         result = getattr(event, "result", None)
+        is_error = bool(getattr(event, "is_error", False))
         block.mark_done(
-            is_error=bool(getattr(event, "is_error", False)),
-            result_summary=_summarize_tool_result(result),
+            is_error=is_error,
+            result_summary=_summarize_tool_result(result) if is_error else None,
             error_detail=getattr(event, "error_detail", None),
             result=result,
         )

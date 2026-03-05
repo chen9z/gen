@@ -102,10 +102,9 @@ async def test_interactive_submit_renders_stream_and_tool_blocks(monkeypatch, tm
     app._live_view._committed_count = saved_committed_count
     rendered = console.export_text()
     assert "Calculating" not in rendered
-    assert "Ctrl+C to interrupt" in rendered
+    assert "Ctrl+C to interrupt" not in rendered  # Not shown after agent finishes
     assert "esc to interrupt" not in rendered.lower()
-    assert rendered.rfind("─") < rendered.rfind("Ctrl+C to interrupt")
-    assert "✓ read:" in rendered  # Updated to match current rendering format
+    assert "✓ Read" in rendered  # Capitalized, no colon
     assert "[RUN]" not in rendered
     assert "[OK]" not in rendered
     assert "[ERR]" not in rendered

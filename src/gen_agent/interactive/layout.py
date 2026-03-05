@@ -16,16 +16,17 @@ def build_status_line(
     max_turns: int = 0,
 ) -> Text:
     meta = session.get_state()
-    session_name = meta.get("sessionName") or "-"
-    pending = meta.get("pendingMessageCount", 0)
-    thinking = meta.get("thinkingLevel", "off")
     provider = meta.get("provider", "-")
     model_id = meta.get("modelId", "-")
-    editor = f" | editor={editor_title}" if editor_title else ""
-    turn_info = f" | turn={current_turn}/{max_turns}" if current_turn > 0 and max_turns > 0 else ""
-    return Text(
-        f"provider={provider}/{model_id} | thinking={thinking} | session={session_name} | pending={pending}{turn_info} | status={state.status_text}{editor}"
-    )
+    thinking = meta.get("thinkingLevel", "off")
+    turn_info = f" · turn {current_turn}/{max_turns}" if current_turn > 0 and max_turns > 0 else ""
+    parts = f"{provider}/{model_id}"
+    if thinking != "off":
+        parts += f" · thinking={thinking}"
+    parts += turn_info
+    if editor_title:
+        parts += f" · {editor_title}"
+    return Text(parts, style="dim")
 
 
 def build_text_panel(title: str, lines: list[str] | None, *, style: str = "") -> Panel:

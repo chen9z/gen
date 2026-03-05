@@ -9,7 +9,6 @@ from rich.console import Console, Group, RenderableType
 from rich.layout import Layout
 from rich.live import Live
 from rich.panel import Panel
-from rich.rule import Rule
 from rich.spinner import Spinner
 from rich.text import Text
 
@@ -219,16 +218,14 @@ class LiveView:
                 Text(f"  Model:   {provider}/{model}"),
                 Text(f"  Session: {session_name}"),
                 Text(f"  cwd:     {cwd}", style="dim"),
+                Text(),
+                Text("  /help for commands, Ctrl+C to interrupt", style="dim"),
             ),
-            title="gen-agent",
+            title="✻ gen-agent",
             title_align="left",
-            border_style="bright_black",
+            border_style="dim",
             padding=(0, 0),
         ))
-        self._console.print(
-            Text("  Tips: /help for commands, @ for file paths, Ctrl+C to interrupt",
-                 style="dim"),
-        )
         self._console.print()
 
     # ------------------------------------------------------------------
@@ -236,7 +233,7 @@ class LiveView:
     # ------------------------------------------------------------------
 
     def print_prompt_separator(self) -> None:
-        self._console.print(Rule(style="bright_black"))
+        self._console.print()
 
     def print_user_prompt(self, message: str) -> None:
         self._console.print()
@@ -498,7 +495,7 @@ class LiveView:
         for _key, lines in sorted(self._widgets_below.items()):
             footer_parts.extend(Text(line) for line in lines)
 
-        if self._entries:
+        if self._working:
             footer_parts.append(Text("  Ctrl+C to interrupt", style="dim"))
 
         has_header = bool(header_parts)

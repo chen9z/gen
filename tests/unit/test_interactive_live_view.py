@@ -85,7 +85,6 @@ def test_live_view_tracks_tool_start_and_end() -> None:
     rendered = console.export_text()
     assert "Read" in rendered
     assert "README.md" in rendered
-    assert "done output" in rendered
 
 
 def test_live_view_flush_coalesces_when_state_unchanged() -> None:
@@ -168,10 +167,9 @@ def test_live_view_renders_compact_thinking_and_toolcall_preview() -> None:
     console = Console(record=True, force_terminal=False, width=120)
     console.print(view._build_renderable())
     rendered = console.export_text()
-    assert "Thinking..." in rendered
-    assert ">" in rendered
-    assert "read" in rendered
-    assert "..." in rendered
+    # After done, thinking and toolcall preview are not shown (Claude Code style)
+    assert "Thinking..." not in rendered
+    assert "⏺" not in rendered  # Toolcall preview hidden after done
 
 
 def test_live_view_notice_ttl_expires(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -213,8 +211,8 @@ def test_live_view_handles_interleaved_multi_toolcall_deltas() -> None:
     console = Console(record=True, force_terminal=False, width=120)
     console.print(view._build_renderable())
     rendered = console.export_text()
-    assert "read" in rendered
-    assert "write" in rendered
+    # After done, toolcall preview is hidden (P11)
+    assert "⏺" not in rendered
 
 
 def test_live_view_set_widget_moves_key_between_placements() -> None:

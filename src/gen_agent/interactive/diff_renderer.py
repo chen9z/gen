@@ -6,7 +6,6 @@ from typing import Any
 from rich.columns import Columns
 from rich.console import Group, RenderableType
 from rich.panel import Panel
-from rich.syntax import Syntax
 from rich.text import Text
 
 

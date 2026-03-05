@@ -126,7 +126,7 @@ class RenderEngine:
             footer_parts.extend(Text(line) for line in lines)
 
         # Footer: keyboard hint
-        if has_entries:
+        if working:
             footer_parts.append(Text("  Ctrl+C to interrupt", style="dim"))
 
         # Use Layout if we have multiple sections, otherwise simple Group

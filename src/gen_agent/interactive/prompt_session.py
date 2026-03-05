@@ -4,9 +4,7 @@ from collections.abc import Callable, Sequence
 from pathlib import Path
 
 from prompt_toolkit import PromptSession
-from prompt_toolkit.application.current import get_app_or_none
 from prompt_toolkit.buffer import Buffer, CompletionState
-from prompt_toolkit.formatted_text import HTML
 from prompt_toolkit.history import InMemoryHistory
 from prompt_toolkit.key_binding import KeyBindings, KeyBindingsBase, merge_key_bindings
 from prompt_toolkit.shortcuts import CompleteStyle
@@ -95,20 +93,7 @@ class InteractivePromptSession:
         )
 
     async def prompt_async(self, prompt: str, *, default: str = "") -> str:
-        return await self._session.prompt_async(
-            prompt, default=default, bottom_toolbar=self._bottom_toolbar,
-        )
-
-    @staticmethod
-    def _bottom_toolbar() -> HTML:
-        app = get_app_or_none()
-        cols = 80
-        if app is not None:
-            try:
-                cols = int(app.output.get_size().columns)
-            except Exception:
-                pass
-        return HTML(f"<bottom-toolbar>{'─' * max(cols, 1)}</bottom-toolbar>")
+        return await self._session.prompt_async(prompt, default=default)
 
     def record_submission(self, text: str) -> None:
         self._history_store.append(text)
