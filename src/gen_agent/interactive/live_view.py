@@ -7,6 +7,7 @@ from collections.abc import Sequence
 from typing import Any
 
 from rich.console import Console, Group, RenderableType
+from rich.layout import Layout
 from rich.live import Live
 from rich.panel import Panel
 from rich.rule import Rule
@@ -694,35 +695,70 @@ class LiveView:
     # ------------------------------------------------------------------
 
     def _build_renderable(self) -> RenderableType:
-        segments: list[RenderableType] = []
+        # Build content sections
+        header_parts: list[RenderableType] = []
+        main_parts: list[RenderableType] = []
+        footer_parts: list[RenderableType] = []
 
+        # Header: widgets above
+        for _key, lines in sorted(self._widgets_above.items()):
+            header_parts.extend(Text(line) for line in lines)
+
+        # Main: active entries
         active_entries = self._entries[self._committed_count:]
         for entry in active_entries:
-            segments.append(entry.render())
+            main_parts.append(entry.render())
 
         if self._mooning_spinner is not None and not active_entries:
-            segments.append(self._mooning_spinner)
+            main_parts.append(self._mooning_spinner)
 
+        # Main: notices
         notices = self._active_notices()
         if notices:
             level, text = notices[-1]
             color = {"info": "dim", "warning": "yellow", "error": "red"}.get(level, "dim")
-            segments.append(Text(f"  {text}", style=color))
+            main_parts.append(Text(f"  {text}", style=color))
 
-        # Show turn progress when active
+        # Main: turn progress
         if self._working and self._current_turn > 0 and self._max_turns > 0:
             turn_text = Text(f"  Turn {self._current_turn}/{self._max_turns}", style="dim")
-            segments.append(turn_text)
+            main_parts.append(turn_text)
 
-        for _key, lines in sorted(self._widgets_above.items()):
-            segments.extend(Text(line) for line in lines)
+        # Footer: widgets below
         for _key, lines in sorted(self._widgets_below.items()):
-            segments.extend(Text(line) for line in lines)
+            footer_parts.extend(Text(line) for line in lines)
 
-        # Show keyboard hint when there are entries in the session
+        # Footer: keyboard hint
         if self._entries:
-            segments.append(Text("  Ctrl+C to interrupt", style="dim"))
+            footer_parts.append(Text("  Ctrl+C to interrupt", style="dim"))
 
-        if not segments:
+        # Use Layout if we have multiple sections, otherwise simple Group
+        has_header = bool(header_parts)
+        has_footer = bool(footer_parts)
+        has_main = bool(main_parts)
+
+        if not (has_header or has_footer or has_main):
             return Text("")
-        return Group(*segments)
+
+        # Simple case: only main content
+        if not has_header and not has_footer:
+            return Group(*main_parts) if main_parts else Text("")
+
+        # Use Layout for structured layout
+        layout = Layout()
+        sections = []
+
+        if has_header:
+            sections.append(Layout(Group(*header_parts), name="header", size=len(header_parts)))
+
+        if has_main:
+            sections.append(Layout(Group(*main_parts), name="main"))
+
+        if has_footer:
+            sections.append(Layout(Group(*footer_parts), name="footer", size=len(footer_parts)))
+
+        if len(sections) == 1:
+            return sections[0].renderable
+
+        layout.split_column(*sections)
+        return layout
