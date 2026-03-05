@@ -21,6 +21,7 @@ from gen_agent.models.messages import AssistantMessage
 
 from .blocks import AssistantBlock, ToolRunBlock, UserPromptBlock
 from .commit_manager import CommitManager
+from .render_engine import RenderEngine
 from .state_manager import StateManager
 
 _NOTICE_TTL_SECONDS = {"info": 2.5, "warning": 4.0, "error": 6.0}
@@ -87,16 +88,10 @@ class LiveView:
         # Initialize commit manager
         self._commit_manager = CommitManager(self._console)
 
+        # Initialize render engine
+        self._render_engine = RenderEngine(self._console, batch_interval)
+
         self._stream_tick = 0
-        self._dirty = True
-
-        self._live: Live | None = None
-        self._flush_task: asyncio.Task[None] | None = None
-
-        # Adaptive refresh
-        self._last_activity_time = time.monotonic()
-        self._min_interval = 0.05  # 20Hz refresh rate (reduced from 50Hz)
-        self._max_interval = 0.2
 
     # ------------------------------------------------------------------
     # Properties
@@ -192,6 +187,47 @@ class LiveView:
     @property
     def _toolcall_phase(self) -> dict[int, str]:
         return self._state._toolcall_phase
+
+    # Compatibility properties for render engine access
+    @property
+    def _live(self) -> Live | None:
+        return self._render_engine._live
+
+    @_live.setter
+    def _live(self, value: Live | None) -> None:
+        self._render_engine._live = value
+
+    @property
+    def _flush_task(self) -> asyncio.Task[None] | None:
+        return self._render_engine._flush_task
+
+    @_flush_task.setter
+    def _flush_task(self, value: asyncio.Task[None] | None) -> None:
+        self._render_engine._flush_task = value
+
+    @property
+    def _dirty(self) -> bool:
+        return self._render_engine._dirty
+
+    @_dirty.setter
+    def _dirty(self, value: bool) -> None:
+        self._render_engine._dirty = value
+
+    @property
+    def _last_activity_time(self) -> float:
+        return self._render_engine._last_activity_time
+
+    @_last_activity_time.setter
+    def _last_activity_time(self, value: float) -> None:
+        self._render_engine._last_activity_time = value
+
+    @property
+    def _min_interval(self) -> float:
+        return self._render_engine._min_interval
+
+    @property
+    def _max_interval(self) -> float:
+        return self._render_engine._max_interval
 
     # ------------------------------------------------------------------
     # Welcome banner
