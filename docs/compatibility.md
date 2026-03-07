@@ -14,12 +14,6 @@
 - 提供 Python 原生扩展与资源体系，支持按项目动态装载和热重载。
 - 明确范围裁剪：暂不实现 `/changelog`、`/copy`、`/share`、`/export`、包管理子命令、OAuth 登录流、TypeScript 扩展桥接。
 
-## 进度快照（2026-02-24）
-
-- 总体情况：`interactive/print/json` 主工作流、会话树、工具循环、OpenAI/Anthropic 双 provider 已实现核心对齐。
-- 对齐程度：日常编码场景（含 interactive 视觉+行为核心能力）为高对齐；协议边角场景为中等对齐。
-- 范围说明：本项目明确排除 `/changelog`、`/copy`、`/share`、`/export`、`/login`、`/logout`，以及 OAuth 登录流、包管理子命令。
-
 ## 已对齐（已交付）
 
 - CLI/运行时基线：`gen` 基于 `Typer`，边界契约基于 `Pydantic v2`，支持 `interactive|print|json|rpc` 模式。
@@ -32,7 +26,6 @@
 - system prompt 对齐：采用与 `pi-mono` 一致的结构化构建流程（工具说明、按工具能力动态 guidelines、文档引导、context/skills 追加顺序、时间与 cwd 尾部注入）。
 - interactive UI：采用 `prompt_toolkit + Rich` 的 shell 模型，输入区使用浮动 `PromptSession`，当前轮输出由 `Rich Live(transient)` 承载，完成态内容写入终端 scrollback。
 - interactive 滚动语义：未满屏时输入框随 transcript 一起下移；满屏后依赖终端自然滚动，输入位置视觉上贴近底部。
-- interactive UI 第二轮收敛：工具状态改为彩色原点并附完成态摘要；消息窗口按终端高度动态裁剪；notice 改为短时 toast；输入态 `Ctrl+C` 不再写入噪声提示。
 - interactive 渲染细节优化：支持同消息多 toolcall 预览并按 `contentIndex` 解析增量；超长完成态正文避免 Markdown 重排闪烁；输入区 usage 在空 prompt 时显示于下一行并靠右对齐，仅展示 `input/output/cache`；开始输入后隐藏该行以减少 prompt 重绘滚动；prompt 禁用软换行，长单行输入改为水平滚动。
 - interactive 行为对齐：`Ctrl+R/Ctrl+T` 选择器、`Ctrl+L/Ctrl+P` 模型轮换、`Ctrl+N` 新会话、`Ctrl+K` 压缩、`Ctrl+D` 展开最近工具详情、`Tab` 补全、`Up/Down` 历史、`Esc` 取消；picker/confirm/input/editor 统一使用共享 PTK dialog 样式与按钮文案。
 - interactive 输入增强：`Ctrl-J/Alt-Enter` 多行、slash fuzzy 补全、`@` 路径补全（忽略 `.git/node_modules/.venv/dist/build` 等目录）、历史持久化（`~/.config/gen-agent/user-history/<cwd_md5>.jsonl`）。
@@ -121,7 +114,6 @@
 - RPC `abort` 可中止进行中的 `prompt/continue` 执行并产出 `aborted` stop reason
 - RPC `reload` 返回 diagnostics；`fork_session.leafId` 非法时返回明确错误
 - RPC 扩展 UI：支持输出 `extension_ui_request`，并接受 `extension_ui_response` 以完成阻塞式对话
-- live 集成测试默认跳过，需显式使用 `pytest --live` 启用（避免日常单测被在线调用拖慢）
 
 ## 命令对齐
 
