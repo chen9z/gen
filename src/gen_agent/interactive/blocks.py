@@ -93,13 +93,6 @@ class AssistantBlock:
         self._thinking_parts.clear()
         self._highlighter.clear_buffer()
 
-    @staticmethod
-    def _single_line_preview(text: str, limit: int = 140) -> str:
-        collapsed = " ".join(part for part in text.strip().split())
-        if len(collapsed) <= limit:
-            return collapsed
-        return collapsed[: limit - 3] + "..."
-
     def render(self) -> RenderableType:
         if self.done and self._cached_render is not None:
             return self._cached_render

@@ -2,11 +2,11 @@ from __future__ import annotations
 
 import asyncio
 import time
+from collections import deque
 from collections.abc import Sequence
 from typing import Any
 
 from rich.console import Console, Group, RenderableType
-from rich.layout import Layout
 from rich.panel import Panel
 from rich.spinner import Spinner
 from rich.text import Text
@@ -16,7 +16,7 @@ from gen_agent.models.messages import AssistantMessage
 from gen_agent.runtime import SessionRuntime
 
 from .blocks import AssistantBlock, ToolRunBlock, UserPromptBlock
-from .event_processor import EventProcessor
+from .event_processor import EventProcessor, format_tokens
 from .render_engine import RenderEngine
 
 _NOTICE_TTL_SECONDS = {"info": 2.5, "warning": 4.0, "error": 6.0}
@@ -51,7 +51,7 @@ class LiveView:
         self._input_usage_parts: list[str] = []
 
         # Inlined from StateManager
-        self._entries: list[UserPromptBlock | AssistantBlock | ToolRunBlock] = []
+        self._entries: deque[UserPromptBlock | AssistantBlock | ToolRunBlock] = deque()
         self._tool_runs: dict[str, ToolRunBlock] = {}
         self._draft: AssistantBlock | None = None
         self._active_toolcall_index: int | None = None
@@ -131,7 +131,7 @@ class LiveView:
 
     def stop(self) -> None:
         self._commit_ready_entries()
-        entries = list(self._entries[self._committed_count:])
+        entries = list(self._entries)[self._committed_count:]
         notices = self._active_notices()
         if self._flush_task:
             self._flush_task.cancel()
@@ -207,7 +207,7 @@ class LiveView:
             return True
         if self._widgets_above or self._widgets_below:
             return True
-        if self._entries[self._committed_count:] or self._idle_spinner is not None:
+        if self._committed_count < len(self._entries) or self._idle_spinner is not None:
             return True
         if self._active_notices():
             return True
@@ -335,7 +335,7 @@ class LiveView:
     def _append_entry(self, entry: AssistantBlock | ToolRunBlock) -> None:
         self._entries.append(entry)
         while len(self._entries) > self._entry_limit:
-            removed = self._entries.pop(0)
+            removed = self._entries.popleft()
             if self._committed_count > 0:
                 self._committed_count -= 1
             if removed is self._draft:
@@ -379,57 +379,48 @@ class LiveView:
             self._console.print(Text(f"{icon} {text}", style=color))
 
     def _build_renderable(self) -> RenderableType:
-        header_parts: list[RenderableType] = []
-        main_parts: list[RenderableType] = []
-        footer_parts: list[RenderableType] = []
+        parts: list[RenderableType] = []
 
         if self._title:
-            header_parts.append(Text(f"  {self._title}", style="bold"))
+            parts.append(Text(f"  {self._title}", style="bold"))
         if self._header_lines:
-            header_parts.extend(Text(f"  {line}") for line in self._header_lines)
+            parts.extend(Text(f"  {line}") for line in self._header_lines)
         for _key, lines in sorted(self._widgets_above.items()):
-            header_parts.extend(Text(line) for line in lines)
+            parts.extend(Text(line) for line in lines)
 
-        active_entries = self._entries[self._committed_count:]
+        active_entries = list(self._entries)[self._committed_count:]
         for entry in active_entries:
-            main_parts.append(entry.render())
+            parts.append(entry.render())
 
         if self._idle_spinner is not None and not active_entries:
-            main_parts.append(self._idle_spinner)
+            parts.append(self._idle_spinner)
 
         for level, text in self._active_notices():
             icon = _NOTICE_ICONS.get(level, "ℹ")
             color = _NOTICE_COLORS.get(level, "dim")
-            footer_parts.append(Text(f"{icon} {text}", style=color))
+            parts.append(Text(f"{icon} {text}", style=color))
 
+        # Real-time usage + turn progress (CC-style status line)
+        status_parts: list[str] = []
+        if self._working:
+            usage = self._current_usage
+            if usage["output"] > 0:
+                status_parts.append(f"~{format_tokens(usage['output'])} output")
+            if self._current_turn > 0:
+                turn_text = f"turn {self._current_turn}"
+                if self._max_turns > 0:
+                    turn_text += f"/{self._max_turns}"
+                status_parts.append(turn_text)
         if self._status_items:
-            status_line = " · ".join(self._status_items.values())
-            footer_parts.append(Text(f"  {status_line}", style="dim"))
+            status_parts.extend(self._status_items.values())
+        if status_parts:
+            parts.append(Text(f"  {' · '.join(status_parts)}", style="dim"))
 
         if self._footer_lines:
-            footer_parts.extend(Text(f"  {line}") for line in self._footer_lines)
+            parts.extend(Text(f"  {line}") for line in self._footer_lines)
         for _key, lines in sorted(self._widgets_below.items()):
-            footer_parts.extend(Text(line) for line in lines)
+            parts.extend(Text(line) for line in lines)
         if self._working:
-            footer_parts.append(Text("  Ctrl+C to interrupt", style="dim"))
+            parts.append(Text("  Ctrl+C to interrupt", style="dim"))
 
-        has_header = bool(header_parts)
-        has_footer = bool(footer_parts)
-        has_main = bool(main_parts)
-        if not (has_header or has_footer or has_main):
-            return Text("")
-        if not has_header and not has_footer:
-            return Group(*main_parts) if main_parts else Text("")
-
-        layout = Layout()
-        sections = []
-        if has_header:
-            sections.append(Layout(Group(*header_parts), name="header", size=len(header_parts)))
-        if has_main:
-            sections.append(Layout(Group(*main_parts), name="main"))
-        if has_footer:
-            sections.append(Layout(Group(*footer_parts), name="footer", size=len(footer_parts)))
-        if len(sections) == 1:
-            return sections[0].renderable
-        layout.split_column(*sections)
-        return layout
+        return Group(*parts) if parts else Text("")

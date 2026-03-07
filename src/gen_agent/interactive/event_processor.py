@@ -19,7 +19,7 @@ if TYPE_CHECKING:
     from .live_view import LiveView
 
 
-def _format_tokens(n: int) -> str:
+def format_tokens(n: int) -> str:
     if n <= 0:
         return "0"
     if n < 1000:
@@ -35,11 +35,11 @@ def _format_usage(message: AssistantMessage) -> str:
         return ""
     parts: list[str] = []
     if usage.input > 0:
-        parts.append(f"{_format_tokens(usage.input)} input")
+        parts.append(f"{format_tokens(usage.input)} input")
     if usage.output > 0:
-        parts.append(f"{_format_tokens(usage.output)} output")
+        parts.append(f"{format_tokens(usage.output)} output")
     if usage.cache_read > 0:
-        parts.append(f"{_format_tokens(usage.cache_read)} cache")
+        parts.append(f"{format_tokens(usage.cache_read)} cache")
     return " · ".join(parts)
 
 

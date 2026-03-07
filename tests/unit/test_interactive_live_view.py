@@ -165,7 +165,7 @@ def test_live_view_commit_on_stop_prints_entries_and_usage() -> None:
     assert "hello" in rendered
     assert "done" in rendered
     assert "2.3k input" not in rendered
-    assert view._entries == []
+    assert len(view._entries) == 0
     assert not view._render_engine.is_active
 
 
