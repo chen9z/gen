@@ -105,6 +105,8 @@ async def test_interactive_submit_writes_final_output_to_scrollback(monkeypatch,
     assert rendered.count("› hello") == 1
     assert "reply:hello" in rendered
     assert "✓ Read README.md" in rendered
+    assert rendered.count("reply:hello") == 1
+    assert rendered.count("✓ Read README.md") == 1
     assert "2.3k input · 79 output" not in rendered
     assert app._live_view._entries == []
     assert app._live_view._live is None

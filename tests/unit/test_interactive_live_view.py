@@ -43,19 +43,29 @@ def _assistant_message(text: str = "") -> AssistantMessage:
     )
 
 
+def _render_text(view: LiveView) -> str:
+    console = Console(record=True, force_terminal=False, width=120)
+    console.print(view._build_renderable())
+    return console.export_text()
+
+
+def _emit_text_stream(view: LiveView, message: AssistantMessage, delta: str) -> None:
+    view.on_session_event(MessageUpdate(message=message, assistantMessageEvent={"type": "start"}))
+    view.on_session_event(
+        MessageUpdate(
+            message=message,
+            assistantMessageEvent={"type": "text_delta", "delta": delta},
+        )
+    )
+    view.on_session_event(MessageUpdate(message=message, assistantMessageEvent={"type": "done"}))
+
+
 def test_live_view_merges_streaming_text_to_assistant_block() -> None:
     view = LiveView(_DummySession())
     message = _assistant_message()
     view.start()
     try:
-        view.on_session_event(MessageUpdate(message=message, assistantMessageEvent={"type": "start"}))
-        view.on_session_event(
-            MessageUpdate(
-                message=message,
-                assistantMessageEvent={"type": "text_delta", "delta": "hello"},
-            )
-        )
-        view.on_session_event(MessageUpdate(message=message, assistantMessageEvent={"type": "done"}))
+        _emit_text_stream(view, message, "hello")
     finally:
         view._render_engine.stop()
 
@@ -88,9 +98,7 @@ def test_live_view_tracks_tool_start_and_end() -> None:
     assert tool_blocks[-1].status == "done"
     assert tool_blocks[-1].is_error is False
 
-    console = Console(record=True, force_terminal=False, width=120)
-    console.print(view._build_renderable())
-    rendered = console.export_text()
+    rendered = _render_text(view)
     assert "Read" in rendered
     assert "README.md" in rendered
 
@@ -108,6 +116,34 @@ def test_live_view_flush_coalesces_when_state_unchanged() -> None:
     assert fake_live.update_calls == 1
 
 
+def test_live_view_does_not_start_live_until_content_exists() -> None:
+    view = LiveView(_DummySession())
+    message = _assistant_message()
+
+    view.start()
+
+    assert view._live is None
+
+    view.on_session_event(MessageUpdate(message=message, assistantMessageEvent={"type": "start"}))
+    view._flush_once()
+
+    assert view._live is not None
+
+
+def test_live_view_commits_done_entries_during_flush() -> None:
+    console = Console(record=True, force_terminal=False, width=120)
+    view = LiveView(_DummySession(), console=console)
+    message = _assistant_message()
+    view._live = _FakeLive()
+
+    _emit_text_stream(view, message, "hello")
+
+    view._flush_once()
+
+    assert view._committed_count == 1
+    assert "hello" in console.export_text()
+
+
 def test_live_view_commit_on_stop_prints_entries_and_usage() -> None:
     console = Console(record=True, force_terminal=False, width=120)
     view = LiveView(_DummySession(), console=console)
@@ -121,11 +157,7 @@ def test_live_view_commit_on_stop_prints_entries_and_usage() -> None:
 
     view.print_user_prompt("hello")
     view.start()
-    view.on_session_event(MessageUpdate(message=message, assistantMessageEvent={"type": "start"}))
-    view.on_session_event(
-        MessageUpdate(message=message, assistantMessageEvent={"type": "text_delta", "delta": "done"})
-    )
-    view.on_session_event(MessageUpdate(message=message, assistantMessageEvent={"type": "done"}))
+    _emit_text_stream(view, message, "done")
     view.on_session_event(MessageEnd(message=message))
     view.stop()
 
@@ -159,14 +191,10 @@ def test_live_view_notice_ttl_expires(monkeypatch: pytest.MonkeyPatch) -> None:
     view._live = _FakeLive()
     view.add_notice("temporary", level="info")
 
-    console = Console(record=True, force_terminal=False, width=120)
-    console.print(view._build_renderable())
-    assert "temporary" in console.export_text()
+    assert "temporary" in _render_text(view)
 
     now["value"] += 3.0
-    console = Console(record=True, force_terminal=False, width=120)
-    console.print(view._build_renderable())
-    assert "temporary" not in console.export_text()
+    assert "temporary" not in _render_text(view)
 
 
 def test_live_view_set_widget_moves_key_between_placements() -> None:
@@ -183,26 +211,18 @@ def test_live_view_set_widget_moves_key_between_placements() -> None:
     assert "summary" not in view._widgets_below
 
 
-def test_live_view_renders_title_header_footer_and_status_detail() -> None:
+def test_live_view_renders_title_header_footer_and_status() -> None:
     view = LiveView(_DummySession())
     view.set_title("Build")
     view.set_header(["Header A"])
     view.set_footer(["Footer Z"])
     view.set_status("sync", "ok")
 
-    compact_console = Console(record=True, force_terminal=False, width=120)
-    compact_console.print(view._build_renderable())
-    compact = compact_console.export_text()
-    assert "Build" in compact
-    assert "Header A" in compact
-    assert "Footer Z" in compact
-    assert "sync=ok" not in compact
-
-    view.toggle_status_detail()
-    detail_console = Console(record=True, force_terminal=False, width=120)
-    detail_console.print(view._build_renderable())
-    detail = detail_console.export_text()
-    assert "sync=ok" in detail
+    rendered = _render_text(view)
+    assert "Build" in rendered
+    assert "Header A" in rendered
+    assert "Footer Z" in rendered
+    assert "sync=ok" in rendered
 
 
 @pytest.mark.asyncio
@@ -216,13 +236,7 @@ async def test_live_view_flush_loop_updates_live_on_stream_events() -> None:
     loop_task = asyncio.create_task(view._flush_loop())
     try:
         message = _assistant_message()
-        view.on_session_event(MessageUpdate(message=message, assistantMessageEvent={"type": "start"}))
-        view.on_session_event(
-            MessageUpdate(
-                message=message,
-                assistantMessageEvent={"type": "text_delta", "delta": "hello"},
-            )
-        )
+        _emit_text_stream(view, message, "hello")
         await asyncio.sleep(0.03)
     finally:
         loop_task.cancel()
@@ -232,19 +246,11 @@ async def test_live_view_flush_loop_updates_live_on_stream_events() -> None:
     assert any(isinstance(entry, AssistantBlock) and entry.text == "hello" for entry in view._entries)
 
 
-def test_live_view_hides_turn_progress_until_status_detail() -> None:
+def test_live_view_hides_turn_progress() -> None:
     view = LiveView(_DummySession())
     view._current_turn = 2
     view._max_turns = 30
     view._working = True
 
-    compact_console = Console(record=True, force_terminal=False, width=120)
-    compact_console.print(view._build_renderable())
-    compact = compact_console.export_text()
-    assert "Turn 2/30" not in compact
-
-    view.toggle_status_detail()
-    detail_console = Console(record=True, force_terminal=False, width=120)
-    detail_console.print(view._build_renderable())
-    detail = detail_console.export_text()
-    assert "Turn 2/30" in detail
+    rendered = _render_text(view)
+    assert "Turn 2/30" not in rendered

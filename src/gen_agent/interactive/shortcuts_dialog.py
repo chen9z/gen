@@ -18,7 +18,6 @@ def get_shortcuts_info() -> list[tuple[str, str]]:
         ("Ctrl+P", "Cycle model backward"),
         ("Ctrl+N", "Start new session"),
         ("Ctrl+K", "Manual compaction"),
-        ("Ctrl+Y", "Toggle status detail view"),
         ("Ctrl+J", "Insert newline (in input)"),
         ("Alt+Enter", "Insert newline (in input)"),
         ("Tab", "Fuzzy completion (/ commands, @ paths)"),

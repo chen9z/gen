@@ -18,8 +18,6 @@ class _InteractiveActions(Protocol):
 
     async def manual_compact(self) -> None: ...
 
-    async def toggle_status_detail(self) -> None: ...
-
     async def toggle_tool_details(self) -> None: ...
 
 
@@ -57,10 +55,6 @@ def build_key_bindings(actions: _InteractiveActions) -> KeyBindings:
     @kb.add("c-k")
     def _compact(event) -> None:
         _spawn(event, actions.manual_compact())
-
-    @kb.add("c-y")
-    def _toggle_status(event) -> None:
-        _spawn(event, actions.toggle_status_detail())
 
     @kb.add("c-d")
     def _toggle_details(event) -> None:

@@ -7,8 +7,6 @@ import time
 from collections.abc import Iterable
 from typing import Any
 
-from prompt_toolkit.patch_stdout import patch_stdout
-
 from gen_agent.core.agent_session import AgentSession
 from gen_agent.extensions import CustomEditorComponent, NoOpExtensionUIContext
 from gen_agent.models.events import AgentSessionEvent
@@ -335,9 +333,6 @@ class GenInteractiveApp:
     async def manual_compact(self) -> None:
         await self._submit("/compact", echo_user=False)
 
-    async def toggle_status_detail(self) -> None:
-        self._live_view.toggle_status_detail()
-
     async def toggle_tool_details(self) -> None:
         self._live_view.toggle_last_tool_details()
 
@@ -359,11 +354,10 @@ class GenInteractiveApp:
 
             while True:
                 try:
-                    with patch_stdout(raw=True):
-                        text = await self._prompt_session.prompt_async(
-                            self._editor_prompt_prefix(),
-                            default=self._editor_text,
-                        )
+                    text = await self._prompt_session.prompt_async(
+                        self._editor_prompt_prefix(),
+                        default=self._editor_text,
+                    )
                 except EOFError:
                     break
                 except KeyboardInterrupt:

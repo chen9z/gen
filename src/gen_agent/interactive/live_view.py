@@ -47,7 +47,6 @@ class LiveView:
         self._header_lines: list[str] = []
         self._footer_lines: list[str] = []
         self._title: str | None = None
-        self._show_status_detail = False
         self._input_usage_parts: list[str] = []
 
         self._state = StateManager(entry_limit=entry_limit)
@@ -105,11 +104,11 @@ class LiveView:
 
     @property
     def _committed_count(self) -> int:
-        return 0
+        return self._state.get_committed_count()
 
     @_committed_count.setter
     def _committed_count(self, value: int) -> None:
-        _ = value
+        self._state.set_committed_count(value)
 
     @property
     def _current_usage(self) -> dict[str, Any]:
@@ -186,9 +185,7 @@ class LiveView:
         return self._render_engine._max_interval
 
     def print_welcome_banner(self) -> None:
-        self._console.print()
         self._console.print(self.build_welcome_renderable())
-        self._console.print()
 
     def build_welcome_renderable(self) -> RenderableType:
         meta = self._session.get_state()
@@ -201,7 +198,6 @@ class LiveView:
                 Text(f"  Model:   {provider}/{model}"),
                 Text(f"  Session: {session_name}"),
                 Text(f"  cwd:     {cwd}", style="dim"),
-                Text(),
                 Text("  /help for commands, Ctrl+C to interrupt", style="dim"),
             ),
             title="✻ gen-agent",
@@ -214,7 +210,7 @@ class LiveView:
         self._console.print(UserPromptBlock(content=message).render())
 
     def start(self) -> None:
-        if self._live is not None:
+        if self._flush_task is not None:
             return
         self._entries.clear()
         self._tool_runs.clear()
@@ -228,18 +224,18 @@ class LiveView:
         self._input_usage_parts = []
         self._state.reset_usage()
         self._state.reset_turn_progress()
+        self._committed_count = 0
         self._last_activity_time = time.monotonic()
         self._stream_tick = 0
-        self._render_engine.start()
         try:
             loop = asyncio.get_running_loop()
         except RuntimeError:
             loop = None
         self._flush_task = loop.create_task(self._flush_loop()) if loop is not None else None
-        self.request_refresh(force=True)
 
     def stop(self) -> None:
-        entries = list(self._entries)
+        self._commit_ready_entries()
+        entries = list(self._entries[self._committed_count :])
         notices = self._active_notices()
         self._render_engine.stop()
         self._commit_entries(entries, notices)
@@ -262,6 +258,7 @@ class LiveView:
             self._input_usage_parts = []
         self._state.reset_usage()
         self._state.reset_turn_progress()
+        self._committed_count = 0
         self._stream_tick = 0
         self._dirty = False
 
@@ -292,8 +289,10 @@ class LiveView:
         return min(self._max_interval, self._batch_interval * (1 + idle_factor))
 
     def _flush_once(self) -> None:
+        self._commit_ready_entries()
         if self._prune_notices():
             self._dirty = True
+        self._ensure_live_started()
         if not self._dirty or self._live is None:
             return
         self._flush_render()
@@ -302,6 +301,26 @@ class LiveView:
         if self._live is None:
             return
         self._render_engine.flush(self._build_renderable())
+
+    def _has_live_content(self) -> bool:
+        if self._title or self._header_lines or self._footer_lines:
+            return True
+        if self._widgets_above or self._widgets_below:
+            return True
+        if self._entries[self._committed_count :] or self._mooning_spinner is not None:
+            return True
+        if self._active_notices():
+            return True
+        if self._working:
+            return True
+        if self._status_items:
+            return True
+        return False
+
+    def _ensure_live_started(self) -> None:
+        if self._live is not None or not self._has_live_content():
+            return
+        self._render_engine.start()
 
     def _prune_notices(self) -> bool:
         if not self._notices:
@@ -353,10 +372,6 @@ class LiveView:
             self._status_items.pop(key, None)
         else:
             self._status_items[key] = text
-        self.request_refresh()
-
-    def toggle_status_detail(self) -> None:
-        self._show_status_detail = not self._show_status_detail
         self.request_refresh()
 
     def toggle_last_tool_details(self) -> None:
@@ -412,6 +427,8 @@ class LiveView:
         self._entries.append(entry)
         while len(self._entries) > self._entry_limit:
             removed = self._entries.pop(0)
+            if self._committed_count > 0:
+                self._committed_count -= 1
             if removed is self._draft:
                 self._draft = None
             if isinstance(removed, ToolRunBlock):
@@ -420,6 +437,25 @@ class LiveView:
                 for content_index in list(removed.toolcalls.keys()):
                     self._toolcall_phase.pop(content_index, None)
         self._last_activity_time = time.monotonic()
+
+    def _commit_ready_entries(self) -> None:
+        if self._committed_count >= len(self._entries):
+            return
+        new_committed = self._committed_count
+        for index in range(self._committed_count, len(self._entries)):
+            entry = self._entries[index]
+            if isinstance(entry, AssistantBlock) and entry.done:
+                self._console.print(entry.render())
+                new_committed = index + 1
+                continue
+            if isinstance(entry, ToolRunBlock) and entry.status == "done":
+                self._console.print(entry.render())
+                new_committed = index + 1
+                continue
+            break
+        if new_committed > self._committed_count:
+            self._committed_count = new_committed
+            self._dirty = True
 
     def _commit_entries(
         self,
@@ -444,10 +480,11 @@ class LiveView:
         for _key, lines in sorted(self._widgets_above.items()):
             header_parts.extend(Text(line) for line in lines)
 
-        for entry in self._entries:
+        active_entries = self._entries[self._committed_count :]
+        for entry in active_entries:
             main_parts.append(entry.render())
 
-        if self._mooning_spinner is not None and not self._entries:
+        if self._mooning_spinner is not None and not active_entries:
             main_parts.append(self._mooning_spinner)
 
         notices = self._active_notices()
@@ -456,11 +493,9 @@ class LiveView:
             color = {"info": "dim", "warning": "yellow", "error": "red"}.get(level, "dim")
             footer_parts.append(Text(f"  {text}", style=color))
 
-        if self._show_status_detail and self._status_items:
+        if self._status_items:
             status_line = " · ".join(f"{key}={value}" for key, value in self._status_items.items())
             footer_parts.append(Text(f"  {status_line}", style="dim"))
-        if self._show_status_detail and self._working and self._current_turn > 0 and self._max_turns > 0:
-            footer_parts.append(Text(f"  Turn {self._current_turn}/{self._max_turns}", style="dim"))
 
         if self._footer_lines:
             footer_parts.extend(Text(f"  {line}") for line in self._footer_lines)
