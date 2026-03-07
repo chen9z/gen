@@ -28,7 +28,7 @@ def test_cli_continue_and_models_flags(tmp_path: Path, monkeypatch) -> None:
 
     async def fake_run_print_mode(session: SessionRuntime, message: str) -> int:
         captured["session_file"] = session.session_file
-        captured["scoped_models"] = list(session._scoped_model_patterns)
+        captured["scoped_models"] = session.model_controller.scoped_model_patterns
         captured["provider"] = session.provider_name
         captured["model"] = session.model_id
         captured["thinking"] = session.thinking_level

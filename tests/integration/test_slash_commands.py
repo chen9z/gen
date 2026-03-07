@@ -323,7 +323,10 @@ async def test_extension_event_handlers_receive_agent_events(tmp_path: Path):
             "def register(pi):\n"
             "    def on_agent_start(payload, session):\n"
             "        session._ext_agent_start = payload.get('type')\n"
+            "    def on_agent_end(payload, session):\n"
+            "        session._ext_agent_end_count = getattr(session, '_ext_agent_end_count', 0) + 1\n"
             "    pi.on('agent_start', on_agent_start)\n"
+            "    pi.on('agent_end', on_agent_end)\n"
         ),
         encoding="utf-8",
     )
@@ -340,6 +343,7 @@ async def test_extension_event_handlers_receive_agent_events(tmp_path: Path):
 
     await session.prompt("hello")
     assert getattr(session, "_ext_agent_start", None) == "agent_start"
+    assert getattr(session, "_ext_agent_end_count", 0) == 1
 
 
 @pytest.mark.asyncio
@@ -349,6 +353,7 @@ async def test_extension_command_return_value_is_used(tmp_path: Path):
         (
             "def register(pi):\n"
             "    def hello(args, session):\n"
+            "        session._ext_cmd_session_ok = session is not None\n"
             "        return f'hello:{args}'\n"
             "    pi.register_command('hello', hello, 'hello cmd')\n"
         ),
@@ -367,6 +372,7 @@ async def test_extension_command_return_value_is_used(tmp_path: Path):
 
     resp = await session.prompt("/hello world")
     assert resp[-1].content[0].text == "hello:world"
+    assert getattr(session, "_ext_cmd_session_ok", False) is True
 
 
 @pytest.mark.asyncio

@@ -149,5 +149,5 @@
 - 扩展运行时为 Python 原生实现，不执行 TypeScript 扩展。
 - interactive 模式已迁移到 PTK+Rich 单视图，不再保留 Textual 三栏实现与兼容分支。
 - 模型配置机制已对齐 `pi-mono` 的 `ModelRegistry` 语义；OAuth 登录流仍未纳入本轮范围。
-- `runtime/` 已拆出 `SessionRuntime`、`RunExecutor`、`CommandRouter`、`EventEmitter` 四类协作者，后续 subagent/delegation 仅在该层继续扩展，不再回灌到旧 session 入口。
+- `runtime/` 已拆出 `SessionRuntime`、`RunExecutor`、`CommandRegistry`、`EventEmitter` 以及 provider/model/prompt/compaction/session 子服务，后续 subagent/delegation 仅在该层继续扩展，不再回灌到单一大 runtime 类。
 - 成本核算依赖 `models.json` 中的模型 pricing 字段。

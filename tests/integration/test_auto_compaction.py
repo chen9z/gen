@@ -77,7 +77,7 @@ def test_compaction_context_does_not_duplicate_messages(tmp_path):
     for i in range(3):
         session.session_manager.append_message(UserMessage(content=f"message {i}"))
 
-    session._handle_manual_compact()
+    session.compact_now()
 
     context = session.session_manager.build_context().messages
     compaction_summaries = [msg for msg in context if msg.role == "compactionSummary"]
