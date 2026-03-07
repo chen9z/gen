@@ -9,26 +9,19 @@ import orjson
 from pydantic import TypeAdapter
 
 from gen_agent.extensions import CustomEditorComponent, NoOpExtensionUIContext
-from gen_agent.extensions.ui import CamelCaseUIMixin, normalize_lines as _normalize_lines
+from gen_agent.extensions.ui import CamelCaseUIMixin, normalize_lines as _normalize_lines, normalize_widget_placement
 from gen_agent.models.rpc import RpcCommand, RpcResponse
 from gen_agent.runtime import SessionRuntime
 
 _rpc_adapter = TypeAdapter(RpcCommand)
 
 
-def _normalize_widget_placement(value: str) -> str:
-    lowered = value.strip().lower()
-    if lowered in {"beloweditor", "below_editor"}:
-        return "belowEditor"
-    return "aboveEditor"
-
-
 def _resolve_widget_placement(value: Any) -> str:
     if isinstance(value, dict):
-        return _normalize_widget_placement(str(value.get("placement", "aboveEditor")))
+        return normalize_widget_placement(str(value.get("placement", "aboveEditor")), camel=True)
     if not isinstance(value, str):
         raise TypeError("widget placement must be a string or {'placement': ...}")
-    return _normalize_widget_placement(str(value))
+    return normalize_widget_placement(str(value), camel=True)
 
 
 class RpcExtensionUIContext(CamelCaseUIMixin):

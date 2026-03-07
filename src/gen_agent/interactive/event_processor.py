@@ -153,10 +153,10 @@ class EventProcessor:
                 payload = json.dumps(item.arguments, ensure_ascii=False)
                 block.set_toolcall_from_message(len(block.toolcalls), item.name, payload)
 
-    def _clear_mooning_spinner(self) -> None:
-        if self._view._mooning_spinner is None:
+    def _clear_idle_spinner(self) -> None:
+        if self._view._idle_spinner is None:
             return
-        self._view._mooning_spinner = None
+        self._view._idle_spinner = None
         self._view.request_refresh()
 
     def _update_realtime_usage(self, delta: str) -> None:
@@ -219,7 +219,7 @@ class EventProcessor:
     def _on_agent_start(self, event: Any) -> None:
         v = self._view
         v._working = True
-        v._mooning_spinner = Spinner("dots", "")
+        v._idle_spinner = Spinner("dots", "")
         v._sticky_error_notice = None
         v._current_turn = 0
         v._max_turns = 0
@@ -228,7 +228,7 @@ class EventProcessor:
     def _on_agent_end(self, event: Any) -> None:
         v = self._view
         v._working = False
-        v._mooning_spinner = None
+        v._idle_spinner = None
         v._sticky_error_notice = None
         v.request_refresh()
 
@@ -250,7 +250,7 @@ class EventProcessor:
         message = getattr(event, "message", None)
         if getattr(message, "role", "") != "assistant":
             return
-        self._clear_mooning_spinner()
+        self._clear_idle_spinner()
 
         assistant_event = getattr(event, "assistant_message_event", None)
         a_type = getattr(assistant_event, "type", "")
@@ -263,7 +263,7 @@ class EventProcessor:
 
     def _on_tool_start(self, event: Any) -> None:
         v = self._view
-        self._clear_mooning_spinner()
+        self._clear_idle_spinner()
         block = ToolRunBlock(
             tool_call_id=event.tool_call_id,
             name=event.tool_name,
@@ -277,7 +277,7 @@ class EventProcessor:
 
     def _on_tool_end(self, event: Any) -> None:
         v = self._view
-        self._clear_mooning_spinner()
+        self._clear_idle_spinner()
         block = v._tool_runs.get(event.tool_call_id)
         if block is None:
             block = ToolRunBlock(
@@ -298,15 +298,15 @@ class EventProcessor:
         v.request_refresh()
 
     def _on_compaction_start(self, event: Any) -> None:
-        self._clear_mooning_spinner()
+        self._clear_idle_spinner()
         self._view.add_notice(f"Auto compact: {event.reason}", level="warning")
 
     def _on_compaction_end(self, event: Any) -> None:
-        self._clear_mooning_spinner()
+        self._clear_idle_spinner()
         self._view.add_notice("Auto compact done", level="info")
 
     def _on_retry_start(self, event: Any) -> None:
-        self._clear_mooning_spinner()
+        self._clear_idle_spinner()
         self._view.add_notice(
             f"Retry {event.attempt}/{event.max_attempts} in {event.delay_ms}ms: "
             f"{event.error_message}",
@@ -315,7 +315,7 @@ class EventProcessor:
 
     def _on_retry_end(self, event: Any) -> None:
         if not event.success:
-            self._clear_mooning_spinner()
+            self._clear_idle_spinner()
             self._view.add_notice(f"Retry failed: {event.final_error}", level="error")
 
     # -- Message update sub-handlers ---------------------------------------

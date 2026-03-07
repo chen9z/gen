@@ -12,8 +12,6 @@ from .diff_renderer import extract_file_change_info, render_diff, summarize_diff
 from .syntax_highlighter import StreamingSyntaxHighlighter
 from .tool_key_args import extract_key_arg_from_json, extract_tool_key_arg, normalize_tool_name
 
-LIVE_CHAR_LIMIT = 8000
-
 
 @dataclass(slots=True)
 class ToolcallPreview:
@@ -136,7 +134,8 @@ class AssistantBlock:
                     parts.extend(highlighted)
                     parts.append(Text("▍"))
                 else:
-                    parts.append(Text(self.text + "▍"))
+                    parts.append(Markdown(self.text))
+                    parts.append(Text("▍"))
         elif not self.done and not self.thinking:
             parts.append(Spinner("dots", text="Thinking...", style="dim italic"))
 

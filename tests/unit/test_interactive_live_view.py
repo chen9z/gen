@@ -106,7 +106,7 @@ def test_live_view_tracks_tool_start_and_end() -> None:
 def test_live_view_flush_coalesces_when_state_unchanged() -> None:
     view = LiveView(_DummySession())
     fake_live = _FakeLive()
-    view._live = fake_live
+    view._render_engine._live = fake_live
 
     view.request_refresh()
     view.request_refresh()
@@ -122,19 +122,19 @@ def test_live_view_does_not_start_live_until_content_exists() -> None:
 
     view.start()
 
-    assert view._live is None
+    assert not view._render_engine.is_active
 
     view.on_session_event(MessageUpdate(message=message, assistantMessageEvent={"type": "start"}))
     view._flush_once()
 
-    assert view._live is not None
+    assert view._render_engine.is_active
 
 
 def test_live_view_commits_done_entries_during_flush() -> None:
     console = Console(record=True, force_terminal=False, width=120)
     view = LiveView(_DummySession(), console=console)
     message = _assistant_message()
-    view._live = _FakeLive()
+    view._render_engine._live = _FakeLive()
 
     _emit_text_stream(view, message, "hello")
 
@@ -166,7 +166,7 @@ def test_live_view_commit_on_stop_prints_entries_and_usage() -> None:
     assert "done" in rendered
     assert "2.3k input" not in rendered
     assert view._entries == []
-    assert view._live is None
+    assert not view._render_engine.is_active
 
 
 def test_live_view_build_input_toolbar_uses_input_output_and_cache_only() -> None:
@@ -188,7 +188,7 @@ def test_live_view_notice_ttl_expires(monkeypatch: pytest.MonkeyPatch) -> None:
     now = {"value": 100.0}
     monkeypatch.setattr("gen_agent.interactive.live_view.time.monotonic", lambda: now["value"])
     view = LiveView(_DummySession())
-    view._live = _FakeLive()
+    view._render_engine._live = _FakeLive()
     view.add_notice("temporary", level="info")
 
     assert "temporary" in _render_text(view)
@@ -229,9 +229,9 @@ def test_live_view_renders_title_header_footer_and_status() -> None:
 async def test_live_view_flush_loop_updates_live_on_stream_events() -> None:
     view = LiveView(_DummySession(), batch_interval=0.01)
     fake_live = _FakeLive()
-    view._live = fake_live
-    view._render_engine._min_interval = 0.01
-    view._render_engine._max_interval = 0.02
+    view._render_engine._live = fake_live
+    view._min_interval = 0.01
+    view._max_interval = 0.02
 
     loop_task = asyncio.create_task(view._flush_loop())
     try:

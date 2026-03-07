@@ -3,27 +3,21 @@ from __future__ import annotations
 import difflib
 from typing import Any
 
-from rich.columns import Columns
 from rich.console import Group, RenderableType
-from rich.panel import Panel
 from rich.text import Text
 
 
-def render_diff(old_content: str, new_content: str, file_path: str = "", side_by_side: bool = False) -> RenderableType:
-    """Render a diff with syntax highlighting.
+def render_diff(old_content: str, new_content: str, file_path: str = "") -> RenderableType:
+    """Render a unified diff with color coding.
 
     Args:
         old_content: Original file content
         new_content: Modified file content
         file_path: Optional file path for context
-        side_by_side: If True, render side-by-side columns; otherwise unified diff
 
     Returns:
         Rich renderable showing the diff with color coding
     """
-    if side_by_side:
-        return _render_side_by_side_diff(old_content, new_content)
-
     old_lines = old_content.splitlines(keepends=True)
     new_lines = new_content.splitlines(keepends=True)
 
@@ -55,25 +49,6 @@ def render_diff(old_content: str, new_content: str, file_path: str = "", side_by
         parts.append(text)
 
     return Group(*parts)
-
-
-def _render_side_by_side_diff(old_content: str, new_content: str) -> RenderableType:
-    """Render a side-by-side diff using Columns.
-
-    Args:
-        old_content: Original file content
-        new_content: Modified file content
-
-    Returns:
-        Rich Columns showing old and new content side by side
-    """
-    old_text = Text(old_content or "(empty)", style="red dim")
-    new_text = Text(new_content or "(empty)", style="green dim")
-
-    old_panel = Panel(old_text, title="Before", border_style="red", padding=(0, 1))
-    new_panel = Panel(new_text, title="After", border_style="green", padding=(0, 1))
-
-    return Columns([old_panel, new_panel], equal=True, expand=True)
 
 
 def summarize_diff(old_content: str, new_content: str) -> str:

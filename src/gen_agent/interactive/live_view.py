@@ -58,13 +58,18 @@ class LiveView:
         self._toolcall_phase: dict[int, str] = {}
         self._sticky_error_notice: str | None = None
         self._working = False
-        self._mooning_spinner: Spinner | None = None
+        self._idle_spinner: Spinner | None = None
         self._committed_count = 0
         self._current_usage: dict[str, Any] = {"input": 0, "output": 0, "cost": 0.0}
         self._current_turn = 0
         self._max_turns = 0
 
-        self._render_engine = RenderEngine(self._console, batch_interval)
+        self._render_engine = RenderEngine(self._console)
+        self._dirty = True
+        self._last_activity_time = 0.0
+        self._flush_task: asyncio.Task[None] | None = None
+        self._min_interval = 0.05
+        self._max_interval = 0.2
         self._event_processor = EventProcessor(self)
         self._stream_tick = 0
 
@@ -75,46 +80,6 @@ class LiveView:
     @property
     def console(self) -> Console:
         return self._console
-
-    @property
-    def _live(self):
-        return self._render_engine._live
-
-    @_live.setter
-    def _live(self, value) -> None:
-        self._render_engine._live = value
-
-    @property
-    def _flush_task(self) -> asyncio.Task[None] | None:
-        return self._render_engine._flush_task
-
-    @_flush_task.setter
-    def _flush_task(self, value: asyncio.Task[None] | None) -> None:
-        self._render_engine._flush_task = value
-
-    @property
-    def _dirty(self) -> bool:
-        return self._render_engine._dirty
-
-    @_dirty.setter
-    def _dirty(self, value: bool) -> None:
-        self._render_engine._dirty = value
-
-    @property
-    def _last_activity_time(self) -> float:
-        return self._render_engine._last_activity_time
-
-    @_last_activity_time.setter
-    def _last_activity_time(self, value: float) -> None:
-        self._render_engine._last_activity_time = value
-
-    @property
-    def _min_interval(self) -> float:
-        return self._render_engine._min_interval
-
-    @property
-    def _max_interval(self) -> float:
-        return self._render_engine._max_interval
 
     # -- Usage helpers (inlined from StateManager) -------------------------
 
@@ -156,22 +121,8 @@ class LiveView:
     def start(self) -> None:
         if self._flush_task is not None:
             return
-        self._entries.clear()
-        self._tool_runs.clear()
-        self._draft = None
-        self._active_toolcall_index = None
-        self._toolcall_phase.clear()
-        self._mooning_spinner = None
-        self._working = False
-        self._notices.clear()
-        self._sticky_error_notice = None
-        self._input_usage_parts = []
-        self._reset_usage()
-        self._current_turn = 0
-        self._max_turns = 0
-        self._committed_count = 0
+        self._reset_turn_state(clear_usage=True)
         self._last_activity_time = time.monotonic()
-        self._stream_tick = 0
         try:
             loop = asyncio.get_running_loop()
         except RuntimeError:
@@ -182,6 +133,9 @@ class LiveView:
         self._commit_ready_entries()
         entries = list(self._entries[self._committed_count:])
         notices = self._active_notices()
+        if self._flush_task:
+            self._flush_task.cancel()
+            self._flush_task = None
         self._render_engine.stop()
         self._commit_entries(entries, notices)
         self._reset_turn_state(clear_usage=False)
@@ -195,7 +149,7 @@ class LiveView:
         self._draft = None
         self._active_toolcall_index = None
         self._toolcall_phase.clear()
-        self._mooning_spinner = None
+        self._idle_spinner = None
         self._working = False
         self._sticky_error_notice = None
         self._notices.clear()
@@ -211,8 +165,7 @@ class LiveView:
     def request_refresh(self, *, force: bool = False) -> None:
         self._dirty = True
         self._last_activity_time = time.monotonic()
-        self._render_engine.request_refresh()
-        if force and self._live is not None:
+        if force and self._render_engine.is_active:
             self._flush_render()
 
     async def _flush_loop(self) -> None:
@@ -239,21 +192,22 @@ class LiveView:
         if self._prune_notices():
             self._dirty = True
         self._ensure_live_started()
-        if not self._dirty or self._live is None:
+        if not self._dirty or not self._render_engine.is_active:
             return
         self._flush_render()
 
     def _flush_render(self) -> None:
-        if self._live is None:
+        if not self._render_engine.is_active:
             return
         self._render_engine.flush(self._build_renderable())
+        self._dirty = False
 
     def _has_live_content(self) -> bool:
         if self._title or self._header_lines or self._footer_lines:
             return True
         if self._widgets_above or self._widgets_below:
             return True
-        if self._entries[self._committed_count:] or self._mooning_spinner is not None:
+        if self._entries[self._committed_count:] or self._idle_spinner is not None:
             return True
         if self._active_notices():
             return True
@@ -264,7 +218,7 @@ class LiveView:
         return False
 
     def _ensure_live_started(self) -> None:
-        if self._live is not None or not self._has_live_content():
+        if self._render_engine.is_active or not self._has_live_content():
             return
         self._render_engine.start()
 
@@ -292,7 +246,7 @@ class LiveView:
     def add_notice(self, message: str, *, level: str = "info") -> None:
         icon = _NOTICE_ICONS.get(level, "ℹ")
         color = _NOTICE_COLORS.get(level, "dim")
-        if self._live is None:
+        if not self._render_engine.is_active:
             self._console.print(Text(f"{icon} {message}", style=color))
             return
         ttl = _NOTICE_TTL_SECONDS.get(level, _NOTICE_TTL_SECONDS["info"])
@@ -352,9 +306,6 @@ class LiveView:
             target[key] = list(lines)
         self.request_refresh()
 
-    def add_user_prompt(self, message: str) -> None:
-        self.print_user_prompt(message)
-
     def add_assistant_message(self, message: AssistantMessage) -> None:
         block = AssistantBlock(done=True)
         self._event_processor._fill_block_from_message(block, message)
@@ -370,6 +321,10 @@ class LiveView:
     def clear_input_usage_text(self) -> None:
         self._input_usage_parts = []
         self.request_refresh()
+
+    def clear_interrupt_state(self) -> None:
+        """Clear tool-call phase tracking on interrupt."""
+        self._toolcall_phase.clear()
 
     def build_input_toolbar(self) -> str:
         return " · ".join(self._input_usage_parts)
@@ -439,12 +394,10 @@ class LiveView:
         for entry in active_entries:
             main_parts.append(entry.render())
 
-        if self._mooning_spinner is not None and not active_entries:
-            main_parts.append(self._mooning_spinner)
+        if self._idle_spinner is not None and not active_entries:
+            main_parts.append(self._idle_spinner)
 
-        notices = self._active_notices()
-        if notices:
-            level, text = notices[-1]
+        for level, text in self._active_notices():
             icon = _NOTICE_ICONS.get(level, "ℹ")
             color = _NOTICE_COLORS.get(level, "dim")
             footer_parts.append(Text(f"{icon} {text}", style=color))

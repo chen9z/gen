@@ -23,6 +23,14 @@ def normalize_lines(content: Any, *, field_name: str) -> list[str] | None:
     raise TypeError(f"{field_name} only supports str | list[str] | None")
 
 
+def normalize_widget_placement(value: str, *, camel: bool = False) -> str:
+    """Normalize widget placement string to canonical form."""
+    lowered = value.strip().lower()
+    if lowered in {"beloweditor", "below_editor"}:
+        return "belowEditor" if camel else "below_editor"
+    return "aboveEditor" if camel else "above_editor"
+
+
 @dataclass
 class CustomEditorComponent:
     """Text-only editor behavior hooks for interactive UIs."""

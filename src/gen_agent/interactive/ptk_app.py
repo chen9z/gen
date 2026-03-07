@@ -8,12 +8,11 @@ from collections.abc import Iterable
 from typing import Any
 
 from gen_agent.extensions import CustomEditorComponent, NoOpExtensionUIContext
-from gen_agent.extensions.ui import CamelCaseUIMixin, normalize_lines as _normalize_lines
+from gen_agent.extensions.ui import CamelCaseUIMixin, normalize_lines as _normalize_lines, normalize_widget_placement
 from gen_agent.models.events import AgentSessionEvent
 from gen_agent.models.messages import AssistantMessage
 from gen_agent.runtime import SessionRuntime
 
-from .blocks import LIVE_CHAR_LIMIT
 from .dialogs import create_confirm_dialog, create_input_dialog, run_with_timeout
 from .keymap import build_key_bindings
 from .live_view import LiveView
@@ -35,13 +34,6 @@ _BUILTIN_COMMANDS = [
     "resume",
     "scoped-models",
 ]
-
-
-def _normalize_widget_placement(value: str) -> str:
-    lowered = value.strip().lower()
-    if lowered in {"beloweditor", "below_editor"}:
-        return "below_editor"
-    return "above_editor"
 
 
 class PtkExtensionUIContext(CamelCaseUIMixin):
@@ -80,7 +72,7 @@ class PtkExtensionUIContext(CamelCaseUIMixin):
 
     def set_widget(self, key: str, content: Any, placement: Any = "above_editor") -> None:
         lines = _normalize_lines(content, field_name="set_widget content")
-        placement_token = _normalize_widget_placement(str(placement))
+        placement_token = normalize_widget_placement(str(placement))
         self._app.set_widget(key, lines, placement=placement_token)
 
     def set_header(self, content: Any) -> None:
@@ -186,7 +178,7 @@ class GenInteractiveApp:
             return
         task.cancel()
         self._last_interrupt_time = now
-        self._live_view._toolcall_phase.clear()
+        self._live_view.clear_interrupt_state()
         self._live_view.add_notice("Interrupted — Ctrl+C again to force quit", level="warning")
 
     def _install_sigint_handler(self) -> None:
@@ -342,4 +334,4 @@ async def run_interactive_mode(session: SessionRuntime, initial_message: str | N
     return await app.run_async()
 
 
-__all__ = ["GenInteractiveApp", "LIVE_CHAR_LIMIT", "PtkExtensionUIContext", "run_interactive_mode"]
+__all__ = ["GenInteractiveApp", "PtkExtensionUIContext", "run_interactive_mode"]
