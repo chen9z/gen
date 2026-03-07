@@ -249,11 +249,7 @@ class EventProcessor:
         if isinstance(message, AssistantMessage):
             usage_text = _format_usage(message)
             if usage_text:
-                for entry in reversed(v._entries):
-                    if isinstance(entry, AssistantBlock) and (entry.text or entry.error):
-                        entry.set_usage_text(usage_text)
-                        v.request_refresh()
-                        break
+                v.set_input_usage_text(usage_text)
 
     def _on_message_update(self, event: Any) -> None:
         message = getattr(event, "message", None)

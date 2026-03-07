@@ -8,7 +8,6 @@ from collections.abc import Iterable
 from typing import Any
 
 from prompt_toolkit.patch_stdout import patch_stdout
-from prompt_toolkit.shortcuts import input_dialog, yes_no_dialog
 
 from gen_agent.core.agent_session import AgentSession
 from gen_agent.extensions import CustomEditorComponent, NoOpExtensionUIContext
@@ -16,6 +15,7 @@ from gen_agent.models.events import AgentSessionEvent
 from gen_agent.models.messages import AssistantMessage
 
 from .blocks import LIVE_CHAR_LIMIT
+from .dialogs import create_confirm_dialog, create_input_dialog, run_with_timeout
 from .keymap import build_key_bindings
 from .live_view import LiveView
 from .pickers import choose_from_values, choose_session, choose_tree
@@ -66,40 +66,24 @@ class PtkExtensionUIContext:
         return await choose_from_values(title, "Select an option", values, timeout_ms=timeout)
 
     async def confirm(self, title: str, message: str, timeout: int | None = None) -> bool:
-        task = yes_no_dialog(title=title, text=message).run_async()
-        if timeout and timeout > 0:
-            try:
-                result = await asyncio.wait_for(task, timeout=timeout / 1000)
-            except asyncio.TimeoutError:
-                return False
-            return bool(result)
-        return bool(await task)
+        task = create_confirm_dialog(title=title, text=message).run_async()
+        return bool(await run_with_timeout(task, timeout))
 
     async def input(self, title: str, placeholder: str | None = None, timeout: int | None = None) -> str | None:
-        task = input_dialog(
+        task = create_input_dialog(
             title=title,
-            text=placeholder or "",
+            text=placeholder or "Enter value",
             default=self._app.get_editor_text(),
         ).run_async()
-        if timeout and timeout > 0:
-            try:
-                return await asyncio.wait_for(task, timeout=timeout / 1000)
-            except asyncio.TimeoutError:
-                return None
-        return await task
+        return await run_with_timeout(task, timeout)
 
     async def editor(self, title: str, prefill: str | None = None, timeout: int | None = None) -> str | None:
-        task = input_dialog(
+        task = create_input_dialog(
             title=title,
             text="Edit text and confirm",
             default=prefill or self._app.get_editor_text(),
         ).run_async()
-        if timeout and timeout > 0:
-            try:
-                return await asyncio.wait_for(task, timeout=timeout / 1000)
-            except asyncio.TimeoutError:
-                return None
-        return await task
+        return await run_with_timeout(task, timeout)
 
     def notify(self, message: str, level: str = "info") -> None:
         self._app.notify(message, level=level)
@@ -187,6 +171,7 @@ class GenInteractiveApp:
             cwd=session.cwd,
             command_provider=self.command_pool,
             key_bindings=build_key_bindings(self),
+            toolbar_provider=self._live_view.build_input_toolbar,
         )
 
     def command_pool(self) -> list[str]:
@@ -249,7 +234,6 @@ class GenInteractiveApp:
             return
         task.cancel()
         self._last_interrupt_time = now
-        # Clean up toolcall phase tracking on interrupt
         self._live_view._toolcall_phase.clear()
         self._live_view.add_notice("Interrupted (Ctrl+C again to quit)", level="warning")
 
@@ -281,17 +265,15 @@ class GenInteractiveApp:
             if isinstance(message, AssistantMessage):
                 self._live_view.add_assistant_message(message)
 
-    async def _submit(self, text: str, *, echo_user: bool = True) -> bool:
+    async def _submit(self, text: str) -> bool:
         payload = text.strip()
         if not payload:
             return True
         async with self._run_lock:
             self._prompt_session.record_submission(payload)
-            if echo_user:
-                self._live_view.print_user_prompt(payload)
-
+            self._live_view.add_user_prompt(payload)
             self._force_quit = False
-            self._live_view.start()
+            self._live_view.clear_input_usage_text()
             try:
                 stream_tick = self._live_view.stream_tick
                 self._active_run_task = asyncio.create_task(self.session.prompt(payload))
@@ -313,13 +295,14 @@ class GenInteractiveApp:
                     self._append_assistant_messages(result)
                 return True
             finally:
-                self._live_view.stop()
+                self._editor_text = ""
 
     async def open_resume_picker(self) -> None:
         selected = await choose_session(self.session)
         if not selected:
             return
         path = self.session.resume_session(selected)
+        self._live_view.reset_session_view()
         self._live_view.add_notice(f"Resumed: {path}", level="info")
 
     async def open_tree_picker(self) -> None:
@@ -330,6 +313,7 @@ class GenInteractiveApp:
         ok = self.session.switch_tree(leaf_id)
         if ok:
             target = leaf_id or "root"
+            self._live_view.reset_session_view()
             self._live_view.add_notice(f"Tree switched: {target}", level="info")
         else:
             self._live_view.add_notice(f"Unknown tree leaf: {selected}", level="error")
@@ -344,16 +328,16 @@ class GenInteractiveApp:
 
     async def new_session(self) -> None:
         self.session.new_session()
+        self._live_view.reset_session_view()
         self._live_view.add_notice("Started new session", level="info")
 
     async def manual_compact(self) -> None:
-        await self._submit("/compact", echo_user=False)
+        await self._submit("/compact")
 
     async def toggle_status_detail(self) -> None:
         self._live_view.toggle_status_detail()
 
     async def toggle_tool_details(self) -> None:
-        """Toggle error details for the last tool run."""
         self._live_view.toggle_last_tool_details()
 
     async def run_async(self) -> int:
@@ -363,20 +347,17 @@ class GenInteractiveApp:
             self.session.bind_ui_context(NoOpExtensionUIContext())
 
         self._session_unsub = self.session.subscribe(self._on_session_event)
+        self._live_view.start()
         try:
             self._live_view.print_welcome_banner()
 
             if self.initial_prompt:
-                self._live_view.print_prompt_separator()
-                self._live_view.print_user_prompt(self.initial_prompt)
-                self._live_view.print_prompt_separator()
-                keep_running = await self._submit(self.initial_prompt, echo_user=False)
+                keep_running = await self._submit(self.initial_prompt)
                 if not keep_running:
                     return 0
 
             while True:
                 try:
-                    self._live_view.print_prompt_separator()
                     with patch_stdout(raw=True):
                         text = await self._prompt_session.prompt_async(
                             self._editor_prompt_prefix(),
@@ -389,7 +370,8 @@ class GenInteractiveApp:
                 finally:
                     self._editor_text = ""
 
-                keep_running = await self._submit(text, echo_user=False)
+                self._prompt_session.clear_last_prompt()
+                keep_running = await self._submit(text)
                 if not keep_running:
                     break
         finally:

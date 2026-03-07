@@ -10,9 +10,13 @@ from prompt_toolkit.history import InMemoryHistory
 from prompt_toolkit.key_binding import KeyBindings, KeyBindingsBase, merge_key_bindings
 from prompt_toolkit.shortcuts import CompleteStyle
 from prompt_toolkit.styles import Style
+from prompt_toolkit.utils import get_cwidth
 
 from .completers import AtPathCompleter, HybridCompleter, SlashFuzzyCompleter
 from .history import HistoryStore
+
+
+ToolbarProvider = Callable[[], str]
 
 
 def accept_completion_or_submit(buffer: Buffer) -> bool:
@@ -56,6 +60,28 @@ def build_input_key_bindings(base_bindings: KeyBindingsBase | None = None) -> Ke
     return merge_key_bindings(bindings)
 
 
+def _display_width(text: str) -> int:
+    return sum(get_cwidth(ch) for ch in text)
+
+
+def _truncate_display_width(text: str, max_width: int) -> str:
+    if max_width <= 0:
+        return ""
+    if _display_width(text) <= max_width:
+        return text
+    if max_width <= 1:
+        return "…"
+    result: list[str] = []
+    width = 1
+    for ch in reversed(text):
+        ch_width = get_cwidth(ch)
+        if width + ch_width > max_width:
+            break
+        result.append(ch)
+        width += ch_width
+    return "…" + "".join(reversed(result))
+
+
 class InteractivePromptSession:
     def __init__(
         self,
@@ -63,9 +89,11 @@ class InteractivePromptSession:
         cwd: str,
         command_provider: Callable[[], Sequence[str]],
         key_bindings: KeyBindingsBase | None = None,
+        toolbar_provider: ToolbarProvider | None = None,
     ) -> None:
         self._history_store = HistoryStore(cwd)
         self._history = InMemoryHistory()
+        self._toolbar_provider = toolbar_provider
         for entry in self._history_store.load():
             self._history.append_string(entry)
 
@@ -79,8 +107,6 @@ class InteractivePromptSession:
                 "completion-menu": "bg:#1f2430 #d5def5",
                 "completion-menu.completion.current": "bg:#2f67d8 #ffffff",
                 "completion-menu.meta.completion.current": "bg:#2f67d8 #ffffff",
-                # Remove default reverse-video on bottom toolbar so it blends
-                # with the terminal background instead of showing a white bar.
                 "bottom-toolbar": "noreverse",
                 "bottom-toolbar.text": "#555555",
             }
@@ -99,11 +125,24 @@ class InteractivePromptSession:
 
     async def prompt_async(self, prompt: str, *, default: str = "") -> str:
         return await self._session.prompt_async(
-            prompt, default=default, bottom_toolbar=self._bottom_toolbar,
+            prompt,
+            default=default,
+            bottom_toolbar=self._bottom_toolbar,
         )
 
-    @staticmethod
-    def _bottom_toolbar() -> str:
+    def clear_last_prompt(self) -> None:
+        renderer = getattr(getattr(self._session, "app", None), "renderer", None)
+        if renderer is None:
+            return
+        try:
+            renderer.erase(leave_alternate_screen=False)
+        except Exception:
+            return
+
+    def _bottom_toolbar(self) -> str:
+        usage = self._toolbar_provider() if self._toolbar_provider is not None else ""
+        if not usage:
+            return ""
         app = get_app_or_none()
         cols = 80
         if app is not None:
@@ -111,7 +150,9 @@ class InteractivePromptSession:
                 cols = int(app.output.get_size().columns)
             except Exception:
                 pass
-        return "─" * max(cols, 1)
+        clipped = _truncate_display_width(usage, max(cols - 1, 1))
+        padding = max(cols - _display_width(clipped), 0)
+        return f"{' ' * padding}{clipped}"
 
     def record_submission(self, text: str) -> None:
         self._history_store.append(text)

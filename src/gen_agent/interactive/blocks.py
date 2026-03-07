@@ -43,7 +43,6 @@ class AssistantBlock:
     toolcalls: dict[int, ToolcallPreview] = field(default_factory=dict)
     error: str | None = None
     done: bool = False
-    usage_text: str = ""
     _highlighter: StreamingSyntaxHighlighter = field(default_factory=StreamingSyntaxHighlighter, init=False)
     _text_parts: list[str] = field(default_factory=list, init=False)
     _thinking_parts: list[str] = field(default_factory=list, init=False)
@@ -99,11 +98,6 @@ class AssistantBlock:
             return collapsed
         return collapsed[: limit - 3] + "..."
 
-    def set_usage_text(self, text: str) -> None:
-        """Set usage text and invalidate cached render."""
-        self.usage_text = text
-        self._cached_render = None
-
     def render(self) -> RenderableType:
         # Use cached render for completed blocks
         if self.done and self._cached_render is not None:
@@ -144,9 +138,6 @@ class AssistantBlock:
 
         if self.error:
             parts.append(Text(f"Error: {self.error}", style="red"))
-
-        if self.usage_text and self.done and (self.text or self.error):
-            parts.append(Text(self.usage_text, style="dim"))
 
         result = Group(*parts) if parts else Text("")
 

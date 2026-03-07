@@ -196,6 +196,7 @@ async def test_submit_ctrl_c_cancels_active_run_and_restores_signal(monkeypatch:
     monkeypatch.setattr("gen_agent.interactive.ptk_app.signal.getsignal", _fake_getsignal)
     monkeypatch.setattr("gen_agent.interactive.ptk_app.signal.signal", _fake_signal)
 
+    app._live_view.start()
     submit_task = asyncio.create_task(app._submit("hello"))
     await session.started.wait()
     assert "value" in signal_handler
@@ -237,3 +238,41 @@ async def test_run_async_keyboard_interrupt_does_not_emit_input_cancelled_notice
 
     assert code == 0
     assert all(message != "Input cancelled" for message, _ in notices)
+
+
+@pytest.mark.asyncio
+async def test_extension_context_confirm_uses_shared_dialog(monkeypatch: pytest.MonkeyPatch) -> None:
+    app = _DummyApp()
+    ctx = PtkExtensionUIContext(app)
+
+    class _Dialog:
+        async def run_async(self):
+            return True
+
+    monkeypatch.setattr("gen_agent.interactive.ptk_app.create_confirm_dialog", lambda **kwargs: _Dialog())
+
+    assert await ctx.confirm("Confirm", "Proceed?") is True
+
+
+@pytest.mark.asyncio
+async def test_extension_context_input_uses_shared_dialog(monkeypatch: pytest.MonkeyPatch) -> None:
+    app = _DummyApp()
+    ctx = PtkExtensionUIContext(app)
+
+    captured = {}
+
+    class _Dialog:
+        async def run_async(self):
+            return "typed"
+
+    def _factory(**kwargs):
+        captured.update(kwargs)
+        return _Dialog()
+
+    monkeypatch.setattr("gen_agent.interactive.ptk_app.create_input_dialog", _factory)
+
+    result = await ctx.input("Title", placeholder="Prompt")
+
+    assert result == "typed"
+    assert captured["title"] == "Title"
+    assert captured["text"] == "Prompt"

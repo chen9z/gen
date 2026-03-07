@@ -31,16 +31,16 @@
 - tools schema 对齐：`find` 改为 `pattern` 必填、`ls` 收敛为 `path/limit`；其余工具参数命名与 `pi-mono` 保持一致（`oldText/newText`、`ignoreCase` 等）。
 - system prompt 对齐：采用与 `pi-mono` 一致的结构化构建流程（工具说明、按工具能力动态 guidelines、文档引导、context/skills 追加顺序、时间与 cwd 尾部注入）。
 - interactive UI：已切换到 `prompt_toolkit + Rich` 单主视图（Claude 风格），采用 Rich Live 稳态渲染，保留命令驱动交互与轻量选择器。
-- interactive 输入区边界：已对齐上下双分割线（消息区上分割线 + 底栏动态宽度下分割线），底部提示收敛为 `Ctrl+C to interrupt`。
+- interactive 输入区边界：改为常驻会话视图 + 固定 bottom toolbar；输入区附近仅保留一处 token usage，显示在输入框下一行并靠右对齐。
 - interactive UI 第二轮收敛：工具状态改为彩色原点并附完成态摘要；消息窗口按终端高度动态裁剪；notice 改为短时 toast；输入态 `Ctrl+C` 不再写入噪声提示。
-- interactive 渲染细节优化：支持同消息多 toolcall 预览并按 `contentIndex` 解析增量；状态行支持 `Ctrl+Y` 明细切换；超长完成态正文避免 Markdown 重排闪烁；底栏提示按显示宽度裁剪。
-- interactive 行为对齐：`Ctrl+R/Ctrl+T` 选择器、`Ctrl+L/Ctrl+P` 模型轮换、`Ctrl+N` 新会话、`Ctrl+K` 压缩、`Tab` 补全、`Up/Down` 历史、`Esc` 取消。
+- interactive 渲染细节优化：支持同消息多 toolcall 预览并按 `contentIndex` 解析增量；超长完成态正文避免 Markdown 重排闪烁；输入区 usage 按显示宽度裁剪，避免与 prompt 重叠；`Ctrl+Y` 切换 usage 明细（默认仅 `input/output`，详细模式再显示 `cache/cost`）。
+- interactive 行为对齐：`Ctrl+R/Ctrl+T` 选择器、`Ctrl+L/Ctrl+P` 模型轮换、`Ctrl+N` 新会话、`Ctrl+K` 压缩、`Tab` 补全、`Up/Down` 历史、`Esc` 取消；picker/confirm/input/editor 统一使用共享 PTK dialog 样式与按钮文案。
 - interactive 输入增强：`Ctrl-J/Alt-Enter` 多行、slash fuzzy 补全、`@` 路径补全（忽略 `.git/node_modules/.venv/dist/build` 等目录）、历史持久化（`~/.config/gen-agent/user-history/<cwd_md5>.jsonl`）。
 - interactive 流式可视化增强：assistant 文本/thinking/toolcall 增量渲染，tool execution 以 in-progress/done 块持续展示。
-- interactive 稳态渲染增强：启用 Rich Live 全屏刷新与会话窗口裁剪，避免长响应时整屏重复堆叠。
+- interactive 稳态渲染增强：启用会话级常驻 Rich Live transcript，多轮消息、工具块与 notice 在同一视图连续保留，避免按轮次 start/stop 带来的断层。
 - 资源体系：skills/prompt templates/themes/context 文件发现；冲突诊断；`/reload` 诊断输出；`/skill:name` 注入。
 - 扩展体系：Python 原生扩展 API（`register_tool`、`register_command`、`register_flag`、`on(event, handler)`），支持异步命令处理器。
-- 扩展 UI（本轮 1:1 对齐范围）：`select/confirm/input/editor`、`notify`、`setStatus`、`setWidget`、`setHeader`、`setFooter`、`setTitle`、`setEditorText/getEditorText`、`setEditorComponent` 已在 interactive/rpc 路径接入（`uiExtensionsEnabled` 控制）。
+- 扩展 UI（本轮 1:1 对齐范围）：`select/confirm/input/editor`、`notify`、`setStatus`、`setWidget`、`setHeader`、`setFooter`、`setTitle`、`setEditorText/getEditorText`、`setEditorComponent` 已在 interactive/rpc 路径接入（`uiExtensionsEnabled` 控制）；interactive 下 `header/footer/title` 现已进入常驻会话视图。
 - 扩展 UI 已收敛为纯文本语义：`setWidget/setHeader/setFooter` 仅接受 `str | list[str] | None`；`setEditorComponent` 仅接受文本编辑配置对象；不再支持组件工厂与 `dispose` 生命周期。
 - 扩展迁移文档：`/Users/chen/workspace/gen/docs/extensions-migration.md`
 - 模型控制：scoped models（精确/通配/模糊）、thinking 后缀、前后向模型轮换、`models.json` 能力钳制。
@@ -102,6 +102,7 @@
 - `grep/find/ls` 返回结构化 tool-result `details`（limit/truncation 元数据）
 - interactive 模式基于 `prompt_toolkit + Rich` 单主视图运行（无需 Textual）
 - interactive 模式支持网络级真流式渲染（provider chunk/token 到达即增量输出，Live 微批量刷新减少闪烁）
+- interactive 多轮对话采用常驻 transcript，用户消息提交后进入同一会话流，不再依赖 prompt_toolkit 默认回显
 - interactive 模式支持会话选择器（`Ctrl+R`）与树节点选择器（`Ctrl+T`）
 - interactive 输入支持 slash 命令补全（`Tab`）与历史回溯（`Up/Down`）
 - interactive 支持 `Esc` 取消 picker/dialog

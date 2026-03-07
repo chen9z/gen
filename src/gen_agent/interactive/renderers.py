@@ -54,9 +54,6 @@ class AssistantRenderer:
         if data.error:
             parts.append(Text(f"Error: {data.error}", style=self.theme.error_color))
 
-        if data.usage_text and data.done:
-            parts.append(Text(data.usage_text, style=self.theme.text_secondary))
-
         return Group(*parts) if parts else Text("")
 
 

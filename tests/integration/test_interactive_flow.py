@@ -3,7 +3,7 @@ from __future__ import annotations
 import pytest
 from rich.console import Console
 
-from gen_agent.interactive.blocks import AssistantBlock, ToolRunBlock
+from gen_agent.interactive.blocks import AssistantBlock, ToolRunBlock, UserPromptBlock
 from gen_agent.interactive.ptk_app import GenInteractiveApp
 from gen_agent.models.content import TextContent
 from gen_agent.models.events import AgentEnd, AgentStart, MessageUpdate, ToolExecutionEnd, ToolExecutionStart
@@ -21,6 +21,7 @@ class _FakeSession:
         self.extension_runner = _Runner()
         self.ui_extensions_enabled = False
         self._listeners = []
+        self.prompts: list[str] = []
 
     def bind_ui_context(self, _context) -> None:
         return
@@ -43,11 +44,12 @@ class _FakeSession:
             "pendingMessageCount": 0,
         }
 
-    async def prompt(self, _payload: str):
+    async def prompt(self, payload: str):
+        self.prompts.append(payload)
         final_message = AssistantMessage(
             provider="openai",
             model="gpt-4o-mini",
-            content=[TextContent(text="hello")],
+            content=[TextContent(text=f"reply:{payload}")],
             stopReason="stop",
         )
         events = [
@@ -55,22 +57,31 @@ class _FakeSession:
             MessageUpdate(message=final_message, assistantMessageEvent={"type": "start"}),
             MessageUpdate(
                 message=final_message,
-                assistantMessageEvent={"type": "text_delta", "delta": "he"},
+                assistantMessageEvent={"type": "text_delta", "delta": "reply:"},
             ),
-            ToolExecutionStart(toolCallId="tc-1", toolName="read", args={"path": "README.md"}),
-            ToolExecutionEnd(
-                toolCallId="tc-1",
-                toolName="read",
-                result={"ok": True},
-                isError=False,
-            ),
-            MessageUpdate(
-                message=final_message,
-                assistantMessageEvent={"type": "text_delta", "delta": "llo"},
-            ),
-            MessageUpdate(message=final_message, assistantMessageEvent={"type": "done"}),
-            AgentEnd(messages=[final_message]),
         ]
+        if payload == "hello":
+            events.extend(
+                [
+                    ToolExecutionStart(toolCallId="tc-1", toolName="read", args={"path": "README.md"}),
+                    ToolExecutionEnd(
+                        toolCallId="tc-1",
+                        toolName="read",
+                        result={"ok": True},
+                        isError=False,
+                    ),
+                ]
+            )
+        events.extend(
+            [
+                MessageUpdate(
+                    message=final_message,
+                    assistantMessageEvent={"type": "text_delta", "delta": payload},
+                ),
+                MessageUpdate(message=final_message, assistantMessageEvent={"type": "done"}),
+                AgentEnd(messages=[final_message]),
+            ]
+        )
         for listener in list(self._listeners):
             for event in events:
                 listener(event)
@@ -83,28 +94,52 @@ async def test_interactive_submit_renders_stream_and_tool_blocks(monkeypatch, tm
     session = _FakeSession(str(tmp_path))
     app = GenInteractiveApp(session)
     app._session_unsub = session.subscribe(app._on_session_event)
+    app._live_view.start()
 
     ok = await app._submit("hello")
 
     assert ok is True
+    user_blocks = [entry for entry in app._live_view._entries if isinstance(entry, UserPromptBlock)]
     assistant_blocks = [entry for entry in app._live_view._entries if isinstance(entry, AssistantBlock)]
     tool_blocks = [entry for entry in app._live_view._entries if isinstance(entry, ToolRunBlock)]
 
-    assert assistant_blocks and assistant_blocks[-1].text == "hello"
+    assert user_blocks and user_blocks[-1].content == "hello"
+    assert assistant_blocks and assistant_blocks[-1].text == "reply:hello"
     assert tool_blocks and tool_blocks[-1].status == "done"
     assert app._live_view._mooning_spinner is None
 
     console = Console(record=True, force_terminal=False, width=120)
-    # Temporarily reset committed count to render all entries for testing
-    saved_committed_count = app._live_view._committed_count
-    app._live_view._committed_count = 0
     console.print(app._live_view._build_renderable())
-    app._live_view._committed_count = saved_committed_count
     rendered = console.export_text()
+    assert "hello" in rendered
+    assert "reply:hello" in rendered
     assert "Calculating" not in rendered
-    assert "Ctrl+C to interrupt" not in rendered  # Not shown after agent finishes
-    assert "esc to interrupt" not in rendered.lower()
-    assert "✓ Read" in rendered  # Capitalized, no colon
+    assert "Ctrl+C to interrupt" not in rendered
+    assert "✓ Read" in rendered
     assert "[RUN]" not in rendered
     assert "[OK]" not in rendered
     assert "[ERR]" not in rendered
+
+
+@pytest.mark.asyncio
+async def test_interactive_submit_keeps_persistent_transcript(monkeypatch, tmp_path) -> None:
+    monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path / "config"))
+    session = _FakeSession(str(tmp_path))
+    app = GenInteractiveApp(session)
+    app._session_unsub = session.subscribe(app._on_session_event)
+    app._live_view.start()
+
+    first_live = app._live_view._live
+    await app._submit("hello")
+    await app._submit("again")
+
+    assert app._live_view._live is first_live
+    user_blocks = [entry for entry in app._live_view._entries if isinstance(entry, UserPromptBlock)]
+    assistant_blocks = [entry for entry in app._live_view._entries if isinstance(entry, AssistantBlock)]
+    assert [block.content for block in user_blocks] == ["hello", "again"]
+    assert [block.text for block in assistant_blocks][-2:] == ["reply:hello", "reply:again"]
+
+    console = Console(record=True, force_terminal=False, width=120)
+    console.print(app._live_view._build_renderable())
+    rendered = console.export_text()
+    assert rendered.count("reply:") >= 2

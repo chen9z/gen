@@ -1,11 +1,10 @@
 from __future__ import annotations
 
-import asyncio
 from typing import Any
 
-from prompt_toolkit.shortcuts import radiolist_dialog
-
 from gen_agent.core.agent_session import AgentSession
+
+from .dialogs import create_select_dialog, run_with_timeout
 
 
 def _tree_label(entry: dict[str, Any], index: int, current_leaf: str | None) -> str:
@@ -23,14 +22,8 @@ async def choose_from_values(
 ) -> str | None:
     if not values:
         return None
-    dialog = radiolist_dialog(title=title, text=text, values=values)
-    task = dialog.run_async()
-    if timeout_ms and timeout_ms > 0:
-        try:
-            return await asyncio.wait_for(task, timeout=timeout_ms / 1000)
-        except asyncio.TimeoutError:
-            return None
-    return await task
+    dialog = create_select_dialog(title=title, text=text, values=values)
+    return await run_with_timeout(dialog.run_async(), timeout_ms)
 
 
 async def choose_session(session: AgentSession) -> str | None:
