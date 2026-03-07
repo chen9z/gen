@@ -258,13 +258,3 @@ class UserPromptBlock:
         t.append("› ", style="bold magenta")
         t.append(self.content, style="bold")
         return t
-
-
-@dataclass(slots=True)
-class NoticeBlock:
-    level: str
-    content: str
-
-    def render(self) -> RenderableType:
-        style = {"info": "cyan", "warning": "yellow", "error": "red"}.get(self.level, "cyan")
-        return Text(self.content, style=style)
