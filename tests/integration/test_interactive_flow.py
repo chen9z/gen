@@ -3,10 +3,9 @@ from __future__ import annotations
 import pytest
 from rich.console import Console
 
-from gen_agent.interactive.blocks import AssistantBlock, ToolRunBlock, UserPromptBlock
 from gen_agent.interactive.ptk_app import GenInteractiveApp
 from gen_agent.models.content import TextContent
-from gen_agent.models.events import AgentEnd, AgentStart, MessageUpdate, ToolExecutionEnd, ToolExecutionStart
+from gen_agent.models.events import AgentEnd, AgentStart, MessageEnd, MessageUpdate, ToolExecutionEnd, ToolExecutionStart
 from gen_agent.models.messages import AssistantMessage
 
 
@@ -51,6 +50,7 @@ class _FakeSession:
             model="gpt-4o-mini",
             content=[TextContent(text=f"reply:{payload}")],
             stopReason="stop",
+            usage={"input": 2300, "output": 79, "total_tokens": 2379},
         )
         events = [
             AgentStart(),
@@ -79,6 +79,7 @@ class _FakeSession:
                     assistantMessageEvent={"type": "text_delta", "delta": payload},
                 ),
                 MessageUpdate(message=final_message, assistantMessageEvent={"type": "done"}),
+                MessageEnd(message=final_message),
                 AgentEnd(messages=[final_message]),
             ]
         )
@@ -89,57 +90,39 @@ class _FakeSession:
 
 
 @pytest.mark.asyncio
-async def test_interactive_submit_renders_stream_and_tool_blocks(monkeypatch, tmp_path) -> None:
+async def test_interactive_submit_writes_final_output_to_scrollback(monkeypatch, tmp_path) -> None:
     monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path / "config"))
     session = _FakeSession(str(tmp_path))
     app = GenInteractiveApp(session)
+    console = Console(record=True, force_terminal=False, width=120)
+    app._live_view = app._live_view.__class__(session, console=console)
     app._session_unsub = session.subscribe(app._on_session_event)
-    app._live_view.start()
 
     ok = await app._submit("hello")
 
     assert ok is True
-    user_blocks = [entry for entry in app._live_view._entries if isinstance(entry, UserPromptBlock)]
-    assistant_blocks = [entry for entry in app._live_view._entries if isinstance(entry, AssistantBlock)]
-    tool_blocks = [entry for entry in app._live_view._entries if isinstance(entry, ToolRunBlock)]
-
-    assert user_blocks and user_blocks[-1].content == "hello"
-    assert assistant_blocks and assistant_blocks[-1].text == "reply:hello"
-    assert tool_blocks and tool_blocks[-1].status == "done"
-    assert app._live_view._mooning_spinner is None
-
-    console = Console(record=True, force_terminal=False, width=120)
-    console.print(app._live_view._build_renderable())
     rendered = console.export_text()
-    assert "hello" in rendered
+    assert rendered.count("› hello") == 1
     assert "reply:hello" in rendered
-    assert "Calculating" not in rendered
-    assert "Ctrl+C to interrupt" not in rendered
-    assert "✓ Read" in rendered
-    assert "[RUN]" not in rendered
-    assert "[OK]" not in rendered
-    assert "[ERR]" not in rendered
+    assert "✓ Read README.md" in rendered
+    assert "2.3k input · 79 output" in rendered
+    assert app._live_view._entries == []
+    assert app._live_view._live is None
 
 
 @pytest.mark.asyncio
-async def test_interactive_submit_keeps_persistent_transcript(monkeypatch, tmp_path) -> None:
+async def test_interactive_submit_keeps_scrollback_between_turns(monkeypatch, tmp_path) -> None:
     monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path / "config"))
     session = _FakeSession(str(tmp_path))
     app = GenInteractiveApp(session)
+    console = Console(record=True, force_terminal=False, width=120)
+    app._live_view = app._live_view.__class__(session, console=console)
     app._session_unsub = session.subscribe(app._on_session_event)
-    app._live_view.start()
 
-    first_live = app._live_view._live
     await app._submit("hello")
     await app._submit("again")
 
-    assert app._live_view._live is first_live
-    user_blocks = [entry for entry in app._live_view._entries if isinstance(entry, UserPromptBlock)]
-    assistant_blocks = [entry for entry in app._live_view._entries if isinstance(entry, AssistantBlock)]
-    assert [block.content for block in user_blocks] == ["hello", "again"]
-    assert [block.text for block in assistant_blocks][-2:] == ["reply:hello", "reply:again"]
-
-    console = Console(record=True, force_terminal=False, width=120)
-    console.print(app._live_view._build_renderable())
     rendered = console.export_text()
     assert rendered.count("reply:") >= 2
+    assert "reply:hello" in rendered
+    assert "reply:again" in rendered

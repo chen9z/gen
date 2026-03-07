@@ -8,7 +8,7 @@ from rich.layout import Layout
 from rich.live import Live
 from rich.text import Text
 
-from .blocks import AssistantBlock, ToolRunBlock, UserPromptBlock
+from .blocks import AssistantBlock, ToolRunBlock
 
 
 class RenderEngine:
@@ -35,7 +35,7 @@ class RenderEngine:
             Text(""),
             console=self._console,
             auto_refresh=False,
-            transient=False,
+            transient=True,
             vertical_overflow="visible",
             redirect_stdout=False,
             redirect_stderr=False,
@@ -56,7 +56,7 @@ class RenderEngine:
 
     def build_renderable(
         self,
-        active_entries: list[UserPromptBlock | AssistantBlock | ToolRunBlock],
+        active_entries: list[AssistantBlock | ToolRunBlock],
         mooning_spinner: RenderableType | None,
         notices: list[tuple[str, str]],
         working: bool,

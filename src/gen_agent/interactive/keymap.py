@@ -23,14 +23,12 @@ class _InteractiveActions(Protocol):
     async def toggle_tool_details(self) -> None: ...
 
 
-
 def _spawn(event, action: Awaitable[None]) -> None:
     creator = getattr(event.app, "create_background_task", None)
     if callable(creator):
         creator(action)
     else:
         asyncio.create_task(action)
-
 
 
 def build_key_bindings(actions: _InteractiveActions) -> KeyBindings:

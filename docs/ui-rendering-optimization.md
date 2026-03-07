@@ -85,3 +85,23 @@
 - `src/gen_agent/interactive/shortcuts_dialog.py` — 移除未用 import
 - `tests/unit/test_interactive_live_view.py` — 测试更新
 - `tests/integration/test_interactive_flow.py` — 测试更新
+
+## 第三轮（回退到 kimi-cli shell 模型）
+
+### 架构调整
+- 放弃 PTK 全屏固定布局与固定底部输入框
+- interactive 主循环回退为浮动 `PromptSession.prompt_async()`
+- 当前轮动态内容由 `Rich Live(transient=True)` 承载
+- 本轮结束后 assistant/tool/usage 统一写入 scrollback
+
+### 交互语义
+- 未满屏时，输入框随 scrollback 一起下移
+- 满屏后依赖终端自然滚动，输入框视觉上贴底
+- 欢迎区 `Panel` 仅在 interactive 启动时打印一次
+- `header/footer/title/widget/status` 只作用于当前轮 live 区，不再作为固定页面 chrome
+
+### 实现影响
+- 删除 fixed-layout 专用 transcript 窗口与 `Application(full_screen=True)` 主路径
+- 移除输入区局部擦除/整屏擦除补丁逻辑
+- usage 不再固定在输入框下方，改为本轮输出结束后以 dim 行写入 scrollback
+- 多轮历史以终端 scrollback 为准，不再维护常驻 transcript 面板

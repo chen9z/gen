@@ -2,9 +2,9 @@ from __future__ import annotations
 
 import asyncio
 import signal
-from contextlib import nullcontext
 
 import pytest
+from rich.console import Console
 
 from gen_agent.extensions import CustomEditorComponent
 from gen_agent.interactive.ptk_app import GenInteractiveApp, PtkExtensionUIContext, run_interactive_mode
@@ -79,7 +79,6 @@ class _DummyApp:
         self.editor_component = component
 
 
-
 def test_ptk_extension_context_accepts_text_api() -> None:
     app = _DummyApp()
     ctx = PtkExtensionUIContext(app)
@@ -103,7 +102,6 @@ def test_ptk_extension_context_accepts_text_api() -> None:
     assert app.title == "My title"
     assert ctx.get_editor_text() == "seed"
     assert isinstance(app.editor_component, CustomEditorComponent)
-
 
 
 def test_ptk_extension_context_rejects_non_text_content() -> None:
@@ -160,6 +158,29 @@ def test_interactive_prompt_prefix_uses_single_style() -> None:
     assert app._editor_prompt_prefix() == "› input: "
 
 
+def test_run_async_prints_welcome_banner_once(monkeypatch: pytest.MonkeyPatch) -> None:
+    app = GenInteractiveApp(_DummySession())
+    console = Console(record=True, force_terminal=False, width=120)
+    app._live_view._console = console
+    app._live_view._render_engine._console = console
+
+    prompts = iter([EOFError()])
+
+    async def _fake_prompt_async(_prompt: str, *, default: str = ""):
+        _ = default
+        result = next(prompts)
+        if isinstance(result, BaseException):
+            raise result
+        return result
+
+    app._prompt_session.prompt_async = _fake_prompt_async  # type: ignore[method-assign]
+
+    asyncio.run(app.run_async())
+
+    rendered = console.export_text()
+    assert rendered.count("gen-agent") == 1
+
+
 class _InterruptibleSession(_DummySession):
     def __init__(self) -> None:
         super().__init__()
@@ -196,7 +217,6 @@ async def test_submit_ctrl_c_cancels_active_run_and_restores_signal(monkeypatch:
     monkeypatch.setattr("gen_agent.interactive.ptk_app.signal.getsignal", _fake_getsignal)
     monkeypatch.setattr("gen_agent.interactive.ptk_app.signal.signal", _fake_signal)
 
-    app._live_view.start()
     submit_task = asyncio.create_task(app._submit("hello"))
     await session.started.wait()
     assert "value" in signal_handler
@@ -211,33 +231,39 @@ async def test_submit_ctrl_c_cancels_active_run_and_restores_signal(monkeypatch:
 
 
 @pytest.mark.asyncio
-async def test_run_async_keyboard_interrupt_does_not_emit_input_cancelled_notice(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
+async def test_run_async_uses_prompt_loop(monkeypatch: pytest.MonkeyPatch) -> None:
     session = _DummySession()
     app = GenInteractiveApp(session)
-    notices: list[tuple[str, str]] = []
+    prompts = iter(["hello", EOFError()])
+    calls: list[tuple[str, bool]] = []
 
-    class _PromptStub:
-        def __init__(self) -> None:
-            self.calls = 0
+    async def _fake_prompt_async(prompt: str, *, default: str = "") -> str:
+        _ = (prompt, default)
+        result = next(prompts)
+        if isinstance(result, BaseException):
+            raise result
+        return result
 
-        async def prompt_async(self, *_args, **_kwargs) -> str:
-            self.calls += 1
-            if self.calls == 1:
-                raise KeyboardInterrupt
-            raise EOFError
+    async def _fake_submit(text: str, *, echo_user: bool = True) -> bool:
+        calls.append((text, echo_user))
+        return text != "hello"
 
-    app._prompt_session = _PromptStub()
-    monkeypatch.setattr(app._live_view, "start", lambda: None)
-    monkeypatch.setattr(app._live_view, "stop", lambda: None)
-    monkeypatch.setattr(app._live_view, "add_notice", lambda message, level="info": notices.append((message, level)))
-    monkeypatch.setattr("gen_agent.interactive.ptk_app.patch_stdout", lambda raw=True: nullcontext())
+    monkeypatch.setattr(app._prompt_session, "prompt_async", _fake_prompt_async)
+    monkeypatch.setattr(app, "_submit", _fake_submit)
 
     code = await app.run_async()
 
     assert code == 0
-    assert all(message != "Input cancelled" for message, _ in notices)
+    assert calls == [("hello", False)]
+
+
+@pytest.mark.asyncio
+async def test_submit_quit_short_circuits_before_session_prompt() -> None:
+    session = _DummySession()
+    app = GenInteractiveApp(session)
+
+    assert await app._submit("/quit") is False
+
 
 
 @pytest.mark.asyncio
@@ -252,27 +278,3 @@ async def test_extension_context_confirm_uses_shared_dialog(monkeypatch: pytest.
     monkeypatch.setattr("gen_agent.interactive.ptk_app.create_confirm_dialog", lambda **kwargs: _Dialog())
 
     assert await ctx.confirm("Confirm", "Proceed?") is True
-
-
-@pytest.mark.asyncio
-async def test_extension_context_input_uses_shared_dialog(monkeypatch: pytest.MonkeyPatch) -> None:
-    app = _DummyApp()
-    ctx = PtkExtensionUIContext(app)
-
-    captured = {}
-
-    class _Dialog:
-        async def run_async(self):
-            return "typed"
-
-    def _factory(**kwargs):
-        captured.update(kwargs)
-        return _Dialog()
-
-    monkeypatch.setattr("gen_agent.interactive.ptk_app.create_input_dialog", _factory)
-
-    result = await ctx.input("Title", placeholder="Prompt")
-
-    assert result == "typed"
-    assert captured["title"] == "Title"
-    assert captured["text"] == "Prompt"

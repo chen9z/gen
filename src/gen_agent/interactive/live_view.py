@@ -7,7 +7,6 @@ from typing import Any
 
 from rich.console import Console, Group, RenderableType
 from rich.layout import Layout
-from rich.live import Live
 from rich.panel import Panel
 from rich.spinner import Spinner
 from rich.text import Text
@@ -26,7 +25,7 @@ _MAX_VISIBLE_NOTICES = 2
 
 
 class LiveView:
-    """Persistent live transcript for the interactive session."""
+    """Current-turn transient live view with scrollback commits."""
 
     def __init__(
         self,
@@ -49,7 +48,7 @@ class LiveView:
         self._footer_lines: list[str] = []
         self._title: str | None = None
         self._show_status_detail = False
-        self._input_usage_parts: list[str] = []
+        self._final_usage_parts: list[str] = []
 
         self._state = StateManager(entry_limit=entry_limit)
         self._render_engine = RenderEngine(self._console, batch_interval)
@@ -65,7 +64,7 @@ class LiveView:
         return self._console
 
     @property
-    def _entries(self) -> list[UserPromptBlock | AssistantBlock | ToolRunBlock]:
+    def _entries(self) -> list[AssistantBlock | ToolRunBlock]:
         return self._state.get_entries()
 
     @property
@@ -147,11 +146,11 @@ class LiveView:
         return self._state._toolcall_phase
 
     @property
-    def _live(self) -> Live | None:
+    def _live(self):
         return self._render_engine._live
 
     @_live.setter
-    def _live(self, value: Live | None) -> None:
+    def _live(self, value) -> None:
         self._render_engine._live = value
 
     @property
@@ -187,14 +186,17 @@ class LiveView:
         return self._render_engine._max_interval
 
     def print_welcome_banner(self) -> None:
+        self._console.print()
+        self._console.print(self.build_welcome_renderable())
+        self._console.print()
+
+    def build_welcome_renderable(self) -> RenderableType:
         meta = self._session.get_state()
         provider = meta.get("provider") or "-"
         model = meta.get("modelId") or "-"
         session_name = meta.get("sessionName") or "new"
         cwd = self._session.cwd
-
-        self._console.print()
-        self._console.print(Panel(
+        return Panel(
             Group(
                 Text(f"  Model:   {provider}/{model}"),
                 Text(f"  Session: {session_name}"),
@@ -206,19 +208,43 @@ class LiveView:
             title_align="left",
             border_style="dim",
             padding=(0, 0),
-        ))
-        self._console.print()
+        )
+
+    def print_user_prompt(self, message: str) -> None:
+        self._console.print(UserPromptBlock(content=message).render())
 
     def start(self) -> None:
         if self._live is not None:
             return
+        self._entries.clear()
+        self._tool_runs.clear()
+        self._draft = None
+        self._active_toolcall_index = None
+        self._toolcall_phase.clear()
+        self._mooning_spinner = None
+        self._working = False
+        self._notices.clear()
+        self._sticky_error_notice = None
+        self._final_usage_parts = []
+        self._state.reset_usage()
+        self._state.reset_turn_progress()
         self._last_activity_time = time.monotonic()
+        self._stream_tick = 0
         self._render_engine.start()
-        self._flush_task = asyncio.create_task(self._flush_loop())
+        try:
+            loop = asyncio.get_running_loop()
+        except RuntimeError:
+            loop = None
+        self._flush_task = loop.create_task(self._flush_loop()) if loop is not None else None
         self.request_refresh(force=True)
 
     def stop(self) -> None:
+        entries = list(self._entries)
+        notices = self._active_notices()
+        usage_text = self._format_final_usage()
         self._render_engine.stop()
+        self._commit_entries(entries, notices, usage_text)
+        self.reset_session_view()
 
     def reset_session_view(self) -> None:
         self._entries.clear()
@@ -229,11 +255,12 @@ class LiveView:
         self._mooning_spinner = None
         self._working = False
         self._sticky_error_notice = None
-        self._input_usage_parts = []
+        self._notices.clear()
+        self._final_usage_parts = []
         self._state.reset_usage()
         self._state.reset_turn_progress()
         self._stream_tick = 0
-        self.request_refresh(force=True)
+        self._dirty = False
 
     def request_refresh(self, *, force: bool = False) -> None:
         self._dirty = True
@@ -354,8 +381,7 @@ class LiveView:
         self.request_refresh()
 
     def add_user_prompt(self, message: str) -> None:
-        self._append_entry(UserPromptBlock(content=message))
-        self.request_refresh()
+        self.print_user_prompt(message)
 
     def add_assistant_message(self, message: AssistantMessage) -> None:
         block = AssistantBlock(done=True)
@@ -367,27 +393,20 @@ class LiveView:
 
     def set_input_usage_text(self, usage_text: str) -> None:
         parts = [part.strip() for part in usage_text.split(" · ") if part.strip()]
-        if parts and "/" in parts[0]:
-            parts = parts[1:]
-        self._input_usage_parts = parts
+        self._final_usage_parts = parts
         self.request_refresh()
 
     def clear_input_usage_text(self) -> None:
-        self._input_usage_parts = []
+        self._final_usage_parts = []
         self.request_refresh()
 
     def build_input_toolbar(self) -> str:
-        if not self._input_usage_parts:
-            return ""
-        if self._show_status_detail:
-            return " · ".join(self._input_usage_parts)
-        compact_parts = self._input_usage_parts[:2]
-        return " · ".join(compact_parts)
+        return ""
 
     def on_session_event(self, event: AgentSessionEvent) -> None:
         self._event_processor.process(event)
 
-    def _append_entry(self, entry: UserPromptBlock | AssistantBlock | ToolRunBlock) -> None:
+    def _append_entry(self, entry: AssistantBlock | ToolRunBlock) -> None:
         self._entries.append(entry)
         while len(self._entries) > self._entry_limit:
             removed = self._entries.pop(0)
@@ -399,6 +418,30 @@ class LiveView:
                 for content_index in list(removed.toolcalls.keys()):
                     self._toolcall_phase.pop(content_index, None)
         self._last_activity_time = time.monotonic()
+
+    def _format_final_usage(self) -> str:
+        if not self._final_usage_parts:
+            return ""
+        if self._show_status_detail:
+            return " · ".join(self._final_usage_parts)
+        parts = list(self._final_usage_parts)
+        if parts and "/" in parts[0]:
+            parts = parts[1:]
+        return " · ".join(parts)
+
+    def _commit_entries(
+        self,
+        entries: Sequence[AssistantBlock | ToolRunBlock],
+        notices: Sequence[tuple[str, str]],
+        usage_text: str,
+    ) -> None:
+        for entry in entries:
+            self._console.print(entry.render())
+        for level, text in notices:
+            color = {"info": "dim", "warning": "yellow", "error": "red"}.get(level, "dim")
+            self._console.print(Text(f"  {text}", style=color))
+        if usage_text:
+            self._console.print(Text(f"  {usage_text}", style="dim"))
 
     def _build_renderable(self) -> RenderableType:
         header_parts: list[RenderableType] = []
@@ -424,19 +467,22 @@ class LiveView:
             color = {"info": "dim", "warning": "yellow", "error": "red"}.get(level, "dim")
             footer_parts.append(Text(f"  {text}", style=color))
 
+        if self._show_status_detail and self._status_items:
+            status_line = " · ".join(f"{key}={value}" for key, value in self._status_items.items())
+            footer_parts.append(Text(f"  {status_line}", style="dim"))
+        if self._show_status_detail and self._working and self._current_turn > 0 and self._max_turns > 0:
+            footer_parts.append(Text(f"  Turn {self._current_turn}/{self._max_turns}", style="dim"))
+
         if self._footer_lines:
             footer_parts.extend(Text(f"  {line}") for line in self._footer_lines)
-
         for _key, lines in sorted(self._widgets_below.items()):
             footer_parts.extend(Text(line) for line in lines)
-
         if self._working:
             footer_parts.append(Text("  Ctrl+C to interrupt", style="dim"))
 
         has_header = bool(header_parts)
         has_footer = bool(footer_parts)
         has_main = bool(main_parts)
-
         if not (has_header or has_footer or has_main):
             return Text("")
         if not has_header and not has_footer:

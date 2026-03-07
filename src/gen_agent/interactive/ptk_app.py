@@ -171,7 +171,6 @@ class GenInteractiveApp:
             cwd=session.cwd,
             command_provider=self.command_pool,
             key_bindings=build_key_bindings(self),
-            toolbar_provider=self._live_view.build_input_toolbar,
         )
 
     def command_pool(self) -> list[str]:
@@ -265,15 +264,19 @@ class GenInteractiveApp:
             if isinstance(message, AssistantMessage):
                 self._live_view.add_assistant_message(message)
 
-    async def _submit(self, text: str) -> bool:
+    async def _submit(self, text: str, *, echo_user: bool = True) -> bool:
         payload = text.strip()
         if not payload:
             return True
+        if payload == "/quit":
+            return False
         async with self._run_lock:
             self._prompt_session.record_submission(payload)
-            self._live_view.add_user_prompt(payload)
+            if echo_user:
+                self._live_view.print_user_prompt(payload)
             self._force_quit = False
             self._live_view.clear_input_usage_text()
+            self._live_view.start()
             try:
                 stream_tick = self._live_view.stream_tick
                 self._active_run_task = asyncio.create_task(self.session.prompt(payload))
@@ -295,6 +298,7 @@ class GenInteractiveApp:
                     self._append_assistant_messages(result)
                 return True
             finally:
+                self._live_view.stop()
                 self._editor_text = ""
 
     async def open_resume_picker(self) -> None:
@@ -302,7 +306,6 @@ class GenInteractiveApp:
         if not selected:
             return
         path = self.session.resume_session(selected)
-        self._live_view.reset_session_view()
         self._live_view.add_notice(f"Resumed: {path}", level="info")
 
     async def open_tree_picker(self) -> None:
@@ -313,7 +316,6 @@ class GenInteractiveApp:
         ok = self.session.switch_tree(leaf_id)
         if ok:
             target = leaf_id or "root"
-            self._live_view.reset_session_view()
             self._live_view.add_notice(f"Tree switched: {target}", level="info")
         else:
             self._live_view.add_notice(f"Unknown tree leaf: {selected}", level="error")
@@ -321,18 +323,16 @@ class GenInteractiveApp:
     async def cycle_model(self, direction: str = "forward") -> None:
         data = self.session.cycle_model(direction=direction)
         self._live_view.add_notice(
-            f"Model: {data.get('provider')}/{data.get('modelId')} "
-            f"thinking={data.get('thinkingLevel')}",
+            f"Model: {data.get('provider')}/{data.get('modelId')} thinking={data.get('thinkingLevel')}",
             level="info",
         )
 
     async def new_session(self) -> None:
         self.session.new_session()
-        self._live_view.reset_session_view()
         self._live_view.add_notice("Started new session", level="info")
 
     async def manual_compact(self) -> None:
-        await self._submit("/compact")
+        await self._submit("/compact", echo_user=False)
 
     async def toggle_status_detail(self) -> None:
         self._live_view.toggle_status_detail()
@@ -347,12 +347,12 @@ class GenInteractiveApp:
             self.session.bind_ui_context(NoOpExtensionUIContext())
 
         self._session_unsub = self.session.subscribe(self._on_session_event)
-        self._live_view.start()
         try:
             self._live_view.print_welcome_banner()
 
             if self.initial_prompt:
-                keep_running = await self._submit(self.initial_prompt)
+                self._live_view.print_user_prompt(self.initial_prompt)
+                keep_running = await self._submit(self.initial_prompt, echo_user=False)
                 if not keep_running:
                     return 0
 
@@ -370,8 +370,7 @@ class GenInteractiveApp:
                 finally:
                     self._editor_text = ""
 
-                self._prompt_session.clear_last_prompt()
-                keep_running = await self._submit(text)
+                keep_running = await self._submit(text, echo_user=False)
                 if not keep_running:
                     break
         finally:
