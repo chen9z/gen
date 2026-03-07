@@ -9,22 +9,11 @@ import orjson
 from pydantic import TypeAdapter
 
 from gen_agent.extensions import CustomEditorComponent, NoOpExtensionUIContext
+from gen_agent.extensions.ui import CamelCaseUIMixin, normalize_lines as _normalize_lines
 from gen_agent.models.rpc import RpcCommand, RpcResponse
 from gen_agent.runtime import SessionRuntime
 
 _rpc_adapter = TypeAdapter(RpcCommand)
-
-
-def _normalize_lines(content: Any, *, field_name: str) -> list[str] | None:
-    if content is None:
-        return None
-    if isinstance(content, str):
-        return content.splitlines() or [content]
-    if isinstance(content, list):
-        if not all(isinstance(line, str) for line in content):
-            raise TypeError(f"{field_name} only supports str | list[str] | None")
-        return content
-    raise TypeError(f"{field_name} only supports str | list[str] | None")
 
 
 def _normalize_widget_placement(value: str) -> str:
@@ -42,7 +31,7 @@ def _resolve_widget_placement(value: Any) -> str:
     return _normalize_widget_placement(str(value))
 
 
-class RpcExtensionUIContext:
+class RpcExtensionUIContext(CamelCaseUIMixin):
     def __init__(self, mode: RpcMode):
         self._mode = mode
 
@@ -179,40 +168,6 @@ class RpcExtensionUIContext:
             request_id=self._mode._next_ui_request_id(),
             payload={"component": payload},
         )
-
-    # Compatibility aliases with pi naming.
-    async def selectDialog(self, title: str, options: list[str], timeout: int | None = None) -> str | None:
-        return await self.select(title, options, timeout=timeout)
-
-    async def confirmDialog(self, title: str, message: str, timeout: int | None = None) -> bool:
-        return await self.confirm(title, message, timeout=timeout)
-
-    async def inputDialog(self, title: str, placeholder: str | None = None, timeout: int | None = None) -> str | None:
-        return await self.input(title, placeholder=placeholder, timeout=timeout)
-
-    def setStatus(self, key: str, text: str | None) -> None:
-        self.set_status(key, text)
-
-    def setWidget(self, key: str, content: Any, placement: Any = "aboveEditor") -> None:
-        self.set_widget(key, content, placement=placement)
-
-    def setHeader(self, content: Any) -> None:
-        self.set_header(content)
-
-    def setFooter(self, content: Any) -> None:
-        self.set_footer(content)
-
-    def setTitle(self, title: str) -> None:
-        self.set_title(title)
-
-    def getEditorText(self) -> str:
-        return self.get_editor_text()
-
-    def setEditorText(self, text: str) -> None:
-        self.set_editor_text(text)
-
-    def setEditorComponent(self, component: Any) -> None:
-        self.set_editor_component(component)
 
 
 class RpcMode:
