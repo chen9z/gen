@@ -92,7 +92,7 @@
 - 放弃 PTK 全屏固定布局与固定底部输入框
 - interactive 主循环回退为浮动 `PromptSession.prompt_async()`
 - 当前轮动态内容由 `Rich Live(transient=True)` 承载
-- 本轮结束后 assistant/tool/usage 统一写入 scrollback
+- 本轮结束后 assistant/tool 写入 scrollback；usage 保留在下一次 prompt 的下方一行
 
 ### 交互语义
 - 未满屏时，输入框随 scrollback 一起下移
@@ -103,5 +103,5 @@
 ### 实现影响
 - 删除 fixed-layout 专用 transcript 窗口与 `Application(full_screen=True)` 主路径
 - 移除输入区局部擦除/整屏擦除补丁逻辑
-- usage 不再固定在输入框下方，改为本轮输出结束后以 dim 行写入 scrollback
+- usage 固定在输入框下方一行并靠右对齐，仅显示 `input/output/cache`
 - 多轮历史以终端 scrollback 为准，不再维护常驻 transcript 面板

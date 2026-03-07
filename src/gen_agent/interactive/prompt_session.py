@@ -4,11 +4,13 @@ from collections.abc import Callable, Sequence
 from pathlib import Path
 
 from prompt_toolkit import PromptSession
+from prompt_toolkit.application.current import get_app_or_none
 from prompt_toolkit.buffer import Buffer, CompletionState
 from prompt_toolkit.history import InMemoryHistory
 from prompt_toolkit.key_binding import KeyBindings, KeyBindingsBase, merge_key_bindings
 from prompt_toolkit.shortcuts import CompleteStyle
 from prompt_toolkit.styles import Style
+from prompt_toolkit.utils import get_cwidth
 
 from .completers import AtPathCompleter, HybridCompleter, SlashFuzzyCompleter
 from .history import HistoryStore
@@ -55,6 +57,28 @@ def build_input_key_bindings(base_bindings: KeyBindingsBase | None = None) -> Ke
     if base_bindings is not None:
         bindings.insert(0, base_bindings)
     return merge_key_bindings(bindings)
+
+
+def _display_width(text: str) -> int:
+    return sum(get_cwidth(ch) for ch in text)
+
+
+def _truncate_display_width(text: str, max_width: int) -> str:
+    if max_width <= 0:
+        return ""
+    if _display_width(text) <= max_width:
+        return text
+    if max_width <= 1:
+        return "…"
+    result: list[str] = []
+    width = 1
+    for ch in reversed(text):
+        ch_width = get_cwidth(ch)
+        if width + ch_width > max_width:
+            break
+        result.append(ch)
+        width += ch_width
+    return "…" + "".join(reversed(result))
 
 
 class InteractivePromptSession:
@@ -105,7 +129,19 @@ class InteractivePromptSession:
     def _bottom_toolbar(self) -> str:
         if self._toolbar_provider is None:
             return ""
-        return self._toolbar_provider()
+        text = self._toolbar_provider()
+        if not text:
+            return ""
+        app = get_app_or_none()
+        cols = 80
+        if app is not None:
+            try:
+                cols = int(app.output.get_size().columns)
+            except Exception:
+                pass
+        clipped = _truncate_display_width(text, max(cols - 1, 1))
+        padding = max(cols - _display_width(clipped), 0)
+        return f"{' ' * padding}{clipped}"
 
     def record_submission(self, text: str) -> None:
         self._history_store.append(text)

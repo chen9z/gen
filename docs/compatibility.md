@@ -33,7 +33,7 @@
 - interactive UI：采用 `prompt_toolkit + Rich` 的 shell 模型，输入区使用浮动 `PromptSession`，当前轮输出由 `Rich Live(transient)` 承载，完成态内容写入终端 scrollback。
 - interactive 滚动语义：未满屏时输入框随 transcript 一起下移；满屏后依赖终端自然滚动，输入位置视觉上贴近底部。
 - interactive UI 第二轮收敛：工具状态改为彩色原点并附完成态摘要；消息窗口按终端高度动态裁剪；notice 改为短时 toast；输入态 `Ctrl+C` 不再写入噪声提示。
-- interactive 渲染细节优化：支持同消息多 toolcall 预览并按 `contentIndex` 解析增量；超长完成态正文避免 Markdown 重排闪烁；输入区 usage 按显示宽度裁剪，避免与 prompt 重叠；`Ctrl+Y` 切换 usage 明细（默认仅 `input/output`，详细模式再显示 `cache/cost`）。
+- interactive 渲染细节优化：支持同消息多 toolcall 预览并按 `contentIndex` 解析增量；超长完成态正文避免 Markdown 重排闪烁；输入区 usage 固定显示在 prompt 下一行并靠右对齐，仅展示 `input/output/cache`。
 - interactive 行为对齐：`Ctrl+R/Ctrl+T` 选择器、`Ctrl+L/Ctrl+P` 模型轮换、`Ctrl+N` 新会话、`Ctrl+K` 压缩、`Tab` 补全、`Up/Down` 历史、`Esc` 取消；picker/confirm/input/editor 统一使用共享 PTK dialog 样式与按钮文案。
 - interactive 输入增强：`Ctrl-J/Alt-Enter` 多行、slash fuzzy 补全、`@` 路径补全（忽略 `.git/node_modules/.venv/dist/build` 等目录）、历史持久化（`~/.config/gen-agent/user-history/<cwd_md5>.jsonl`）。
 - interactive 流式可视化增强：assistant 文本/thinking/toolcall 增量渲染，tool execution 以 in-progress/done 块持续展示。

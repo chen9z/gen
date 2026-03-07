@@ -171,6 +171,7 @@ class GenInteractiveApp:
             cwd=session.cwd,
             command_provider=self.command_pool,
             key_bindings=build_key_bindings(self),
+            toolbar_provider=self._live_view.build_input_toolbar,
         )
 
     def command_pool(self) -> list[str]:

@@ -95,7 +95,7 @@ async def test_prompt_session_uses_toolbar_provider(monkeypatch, tmp_path) -> No
     result = await session.prompt_async("› ")
 
     assert callable(result["bottom_toolbar"])
-    assert result["bottom_toolbar"]() == "usage line"
+    assert result["bottom_toolbar"]().rstrip().endswith("usage line")
 
 
 def test_prompt_session_records_submission(monkeypatch, tmp_path) -> None:
@@ -108,3 +108,28 @@ def test_prompt_session_records_submission(monkeypatch, tmp_path) -> None:
     session.record_submission("hello")
 
     assert session._history_store.load()[-1] == "hello"
+
+
+def test_prompt_session_right_aligns_toolbar_text(monkeypatch, tmp_path) -> None:
+    monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path / "config"))
+    session = InteractivePromptSession(
+        cwd=str(tmp_path),
+        command_provider=lambda: [],
+        toolbar_provider=lambda: "2.3k input · 79 output · 512 cache",
+    )
+
+    class _Output:
+        def get_size(self):
+            class _Size:
+                columns = 50
+
+            return _Size()
+
+    class _App:
+        output = _Output()
+
+    monkeypatch.setattr("gen_agent.interactive.prompt_session.get_app_or_none", lambda: _App())
+    toolbar = session._bottom_toolbar()
+
+    assert toolbar.rstrip().endswith("512 cache")
+    assert len(toolbar) >= len("2.3k input · 79 output · 512 cache")

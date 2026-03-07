@@ -132,9 +132,24 @@ def test_live_view_commit_on_stop_prints_entries_and_usage() -> None:
     rendered = console.export_text()
     assert "hello" in rendered
     assert "done" in rendered
-    assert "2.3k input" in rendered
+    assert "2.3k input" not in rendered
     assert view._entries == []
     assert view._live is None
+
+
+def test_live_view_build_input_toolbar_uses_input_output_and_cache_only() -> None:
+    view = LiveView(_DummySession())
+    message = AssistantMessage(
+        provider="openai",
+        model="gpt-4o-mini",
+        content=[TextContent(text="done")],
+        stopReason="stop",
+        usage={"input": 2300, "output": 79, "cache_read": 512, "total_tokens": 2891},
+    )
+
+    view.on_session_event(MessageEnd(message=message))
+
+    assert view.build_input_toolbar() == "2.3k input · 79 output · 512 cache"
 
 
 def test_live_view_notice_ttl_expires(monkeypatch: pytest.MonkeyPatch) -> None:

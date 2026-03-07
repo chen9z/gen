@@ -48,7 +48,7 @@ class LiveView:
         self._footer_lines: list[str] = []
         self._title: str | None = None
         self._show_status_detail = False
-        self._final_usage_parts: list[str] = []
+        self._input_usage_parts: list[str] = []
 
         self._state = StateManager(entry_limit=entry_limit)
         self._render_engine = RenderEngine(self._console, batch_interval)
@@ -225,7 +225,7 @@ class LiveView:
         self._working = False
         self._notices.clear()
         self._sticky_error_notice = None
-        self._final_usage_parts = []
+        self._input_usage_parts = []
         self._state.reset_usage()
         self._state.reset_turn_progress()
         self._last_activity_time = time.monotonic()
@@ -241,12 +241,14 @@ class LiveView:
     def stop(self) -> None:
         entries = list(self._entries)
         notices = self._active_notices()
-        usage_text = self._format_final_usage()
         self._render_engine.stop()
-        self._commit_entries(entries, notices, usage_text)
-        self.reset_session_view()
+        self._commit_entries(entries, notices)
+        self._reset_turn_state(clear_usage=False)
 
     def reset_session_view(self) -> None:
+        self._reset_turn_state(clear_usage=True)
+
+    def _reset_turn_state(self, *, clear_usage: bool) -> None:
         self._entries.clear()
         self._tool_runs.clear()
         self._draft = None
@@ -256,7 +258,8 @@ class LiveView:
         self._working = False
         self._sticky_error_notice = None
         self._notices.clear()
-        self._final_usage_parts = []
+        if clear_usage:
+            self._input_usage_parts = []
         self._state.reset_usage()
         self._state.reset_turn_progress()
         self._stream_tick = 0
@@ -392,16 +395,15 @@ class LiveView:
         self.request_refresh()
 
     def set_input_usage_text(self, usage_text: str) -> None:
-        parts = [part.strip() for part in usage_text.split(" · ") if part.strip()]
-        self._final_usage_parts = parts
+        self._input_usage_parts = [part.strip() for part in usage_text.split(" · ") if part.strip()]
         self.request_refresh()
 
     def clear_input_usage_text(self) -> None:
-        self._final_usage_parts = []
+        self._input_usage_parts = []
         self.request_refresh()
 
     def build_input_toolbar(self) -> str:
-        return ""
+        return " · ".join(self._input_usage_parts)
 
     def on_session_event(self, event: AgentSessionEvent) -> None:
         self._event_processor.process(event)
@@ -419,29 +421,16 @@ class LiveView:
                     self._toolcall_phase.pop(content_index, None)
         self._last_activity_time = time.monotonic()
 
-    def _format_final_usage(self) -> str:
-        if not self._final_usage_parts:
-            return ""
-        if self._show_status_detail:
-            return " · ".join(self._final_usage_parts)
-        parts = list(self._final_usage_parts)
-        if parts and "/" in parts[0]:
-            parts = parts[1:]
-        return " · ".join(parts)
-
     def _commit_entries(
         self,
         entries: Sequence[AssistantBlock | ToolRunBlock],
         notices: Sequence[tuple[str, str]],
-        usage_text: str,
     ) -> None:
         for entry in entries:
             self._console.print(entry.render())
         for level, text in notices:
             color = {"info": "dim", "warning": "yellow", "error": "red"}.get(level, "dim")
             self._console.print(Text(f"  {text}", style=color))
-        if usage_text:
-            self._console.print(Text(f"  {usage_text}", style="dim"))
 
     def _build_renderable(self) -> RenderableType:
         header_parts: list[RenderableType] = []

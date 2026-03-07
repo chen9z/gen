@@ -34,17 +34,12 @@ def _format_usage(message: AssistantMessage) -> str:
     if usage.total_tokens <= 0 and usage.input <= 0 and usage.output <= 0:
         return ""
     parts: list[str] = []
-    if message.provider or message.model:
-        parts.append(f"{message.provider}/{message.model}")
     if usage.input > 0:
         parts.append(f"{_format_tokens(usage.input)} input")
     if usage.output > 0:
         parts.append(f"{_format_tokens(usage.output)} output")
     if usage.cache_read > 0:
-        parts.append(f"{_format_tokens(usage.cache_read)} cache read")
-    cost = usage.cost.total
-    if cost > 0:
-        parts.append(f"${cost:.4f}" if cost < 0.01 else f"${cost:.2f}")
+        parts.append(f"{_format_tokens(usage.cache_read)} cache")
     return " · ".join(parts)
 
 
