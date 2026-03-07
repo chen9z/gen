@@ -1,9 +1,9 @@
 import pytest
 
 from gen_agent.core.agent_loop import run_agent_loop
-from gen_agent.core.agent_session import AgentSession
 from gen_agent.models.content import TextContent, ToolCallContent
 from gen_agent.models.messages import AssistantMessage
+from gen_agent.runtime import SessionRuntime
 
 
 class FakeProvider:
@@ -30,7 +30,7 @@ class FakeProvider:
 
 @pytest.mark.asyncio
 async def test_agent_runs_tool_loop(tmp_path):
-    session = AgentSession(
+    session = SessionRuntime(
         cwd=str(tmp_path),
         provider="openai",
         model="gpt-4o-mini",
@@ -60,7 +60,7 @@ class ContinueProvider:
 
 @pytest.mark.asyncio
 async def test_continue_run_persists_generated_messages(tmp_path):
-    session = AgentSession(
+    session = SessionRuntime(
         cwd=str(tmp_path),
         provider="openai",
         model="gpt-4o-mini",

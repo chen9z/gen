@@ -2,11 +2,11 @@ from __future__ import annotations
 
 import pytest
 
-from gen_agent.core.agent_session import AgentSession
 from gen_agent.models.content import TextContent, ToolCallContent
 from gen_agent.models.events import AssistantMessageEvent
 from gen_agent.models.messages import AssistantMessage
 from gen_agent.providers.stream_types import ProviderAssistantEvent, ProviderFinalEvent, stream_events_from_assistant
+from gen_agent.runtime import SessionRuntime
 
 
 class StreamingProvider:
@@ -39,7 +39,7 @@ class StreamingProvider:
 
 @pytest.mark.asyncio
 async def test_agent_session_prefers_provider_stream_complete(tmp_path) -> None:
-    session = AgentSession(
+    session = SessionRuntime(
         cwd=str(tmp_path),
         provider="openai",
         model="gpt-4o-mini",

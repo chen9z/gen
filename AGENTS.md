@@ -9,7 +9,6 @@ Core code is in `src/gen_agent/`:
 - `interactive/` for prompt_toolkit + Rich interactive runtime (app/layout/keymap/pickers/render).
 - `providers/`, `tools/`, `resources/`, `extensions/`, and `models/` for integrations and shared schemas.
 - `extensions/ui.py` 定义扩展 UI 纯文本上下文协议与 no-op 实现；interactive/rpc 模式分别绑定 UI bridge。
-- `core/agent_session.py` is a compatibility shim; prefer `SessionRuntime` for new internal runtime integrations.
 
 Tests are organized by scope:
 - `tests/unit/` for focused component behavior.

@@ -17,7 +17,7 @@
 ## 已对齐（已交付）
 
 - CLI/运行时基线：`gen` 基于 `Typer`，边界契约基于 `Pydantic v2`，支持 `interactive|print|json|rpc` 模式。
-- 运行时分层：新增 `SessionRuntime` 作为主入口，`AgentSession` 保留为兼容 shim；`runtime/` 层负责 session/runtime 协调，`core/` 继续保留纯服务与底层 agent loop。
+- 运行时分层：`SessionRuntime` 是唯一主入口；`runtime/` 层负责 session/runtime 协调，`core/` 继续保留纯服务与底层 agent loop。
 - 非交互行为：管道输入默认进入 print 模式；多消息参数顺序执行；`print/json` 在 provider 错误时返回非 0 退出码；`@图片` 可作为图片附件直传模型。
 - Provider：OpenAI 与 Anthropic 运行于同一 agent loop，保留 assistant 的 tool-call 历史。
 - 会话运行时：JSONL 树结构持久化；支持 v1/v2/v3 迁移；`resume/continue` 可恢复 provider/model/thinking；支持 fork/tree/compact。
@@ -149,5 +149,5 @@
 - 扩展运行时为 Python 原生实现，不执行 TypeScript 扩展。
 - interactive 模式已迁移到 PTK+Rich 单视图，不再保留 Textual 三栏实现与兼容分支。
 - 模型配置机制已对齐 `pi-mono` 的 `ModelRegistry` 语义；OAuth 登录流仍未纳入本轮范围。
-- `runtime/` 已拆出 `SessionRuntime`、`RunExecutor`、`CommandRouter`、`EventEmitter` 四类协作者，后续 subagent/delegation 仅在该层继续扩展，不再回灌到 legacy `AgentSession`。
+- `runtime/` 已拆出 `SessionRuntime`、`RunExecutor`、`CommandRouter`、`EventEmitter` 四类协作者，后续 subagent/delegation 仅在该层继续扩展，不再回灌到旧 session 入口。
 - 成本核算依赖 `models.json` 中的模型 pricing 字段。

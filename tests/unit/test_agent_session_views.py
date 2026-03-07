@@ -2,13 +2,13 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from gen_agent.core.agent_session import AgentSession
 from gen_agent.models.messages import UserMessage
+from gen_agent.runtime import SessionRuntime
 
 
 def test_list_sessions_supports_offset_and_include_current(tmp_path: Path) -> None:
     session_dir = tmp_path / "sessions"
-    session = AgentSession(
+    session = SessionRuntime(
         cwd=str(tmp_path),
         provider="openai",
         model="gpt-4o-mini",
@@ -39,7 +39,7 @@ def test_list_sessions_supports_offset_and_include_current(tmp_path: Path) -> No
 
 
 def test_get_tree_supports_limit_and_include_root(tmp_path: Path) -> None:
-    session = AgentSession(
+    session = SessionRuntime(
         cwd=str(tmp_path),
         provider="openai",
         model="gpt-4o-mini",

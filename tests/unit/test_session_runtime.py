@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import pytest
 
-from gen_agent.core.agent_session import AgentSession
 from gen_agent.models.content import TextContent
 from gen_agent.models.messages import AssistantMessage
 from gen_agent.runtime import SessionRuntime
@@ -32,17 +31,6 @@ class _RetryProvider:
             content=[TextContent(text="retry-ok")],
             stopReason="stop",
         )
-
-
-def test_agent_session_is_session_runtime_shim(tmp_path) -> None:
-    session = AgentSession(
-        cwd=str(tmp_path),
-        provider="openai",
-        model="gpt-4o-mini",
-        api_key="x",
-        persist_session=False,
-    )
-    assert isinstance(session, SessionRuntime)
 
 
 @pytest.mark.asyncio

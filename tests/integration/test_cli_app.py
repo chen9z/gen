@@ -4,7 +4,7 @@ import importlib
 from typer.testing import CliRunner
 import pytest
 
-from gen_agent.core.agent_session import AgentSession
+from gen_agent.runtime import SessionRuntime
 from gen_agent.models.prompt import PromptInput
 
 cli_module = importlib.import_module("gen_agent.cli.app")
@@ -12,7 +12,7 @@ cli_module = importlib.import_module("gen_agent.cli.app")
 
 def test_cli_continue_and_models_flags(tmp_path: Path, monkeypatch) -> None:
     session_dir = tmp_path / "sessions"
-    seed = AgentSession(
+    seed = SessionRuntime(
         cwd=str(tmp_path),
         provider="openai",
         model="gpt-4o-mini",
@@ -26,7 +26,7 @@ def test_cli_continue_and_models_flags(tmp_path: Path, monkeypatch) -> None:
 
     captured: dict[str, object] = {}
 
-    async def fake_run_print_mode(session: AgentSession, message: str) -> int:
+    async def fake_run_print_mode(session: SessionRuntime, message: str) -> int:
         captured["session_file"] = session.session_file
         captured["scoped_models"] = list(session._scoped_model_patterns)
         captured["provider"] = session.provider_name
@@ -108,7 +108,7 @@ def test_cli_extension_and_resource_flags(tmp_path: Path, monkeypatch) -> None:
 
     captured: dict[str, object] = {}
 
-    async def fake_run_print_mode(session: AgentSession, message: str) -> int:
+    async def fake_run_print_mode(session: SessionRuntime, message: str) -> int:
         captured["commands"] = sorted(session.extension_runner.get_commands().keys())
         captured["skills"] = [s.name for s in session.resource_loader.state.skills]
         captured["prompts"] = [p.name for p in session.resource_loader.state.prompts]
@@ -186,7 +186,7 @@ def test_cli_extension_registered_flags(tmp_path: Path, monkeypatch) -> None:
 
     captured: dict[str, object] = {}
 
-    async def fake_run_print_mode(session: AgentSession, message: str) -> int:
+    async def fake_run_print_mode(session: SessionRuntime, message: str) -> int:
         captured["flags"] = dict(session.extension_flags)
         captured["message"] = message
         return 0
@@ -225,7 +225,7 @@ def test_cli_extension_string_flag_requires_value_before_next_option(tmp_path: P
         encoding="utf-8",
     )
 
-    async def fake_run_print_mode(session: AgentSession, message: str) -> int:
+    async def fake_run_print_mode(session: SessionRuntime, message: str) -> int:
         del session, message
         return 0
 
@@ -273,7 +273,7 @@ def test_cli_file_argument_expansion(tmp_path: Path, monkeypatch) -> None:
 
     captured: dict[str, object] = {}
 
-    async def fake_run_print_mode(session: AgentSession, message: str) -> int:
+    async def fake_run_print_mode(session: SessionRuntime, message: str) -> int:
         del session
         captured["message"] = message
         return 0
@@ -304,7 +304,7 @@ def test_cli_image_argument_expansion(tmp_path: Path, monkeypatch) -> None:
 
     captured: dict[str, object] = {}
 
-    async def fake_run_print_mode(session: AgentSession, message) -> int:
+    async def fake_run_print_mode(session: SessionRuntime, message) -> int:
         del session
         captured["message"] = message
         return 0
@@ -337,7 +337,7 @@ def test_cli_only_image_argument_yields_prompt_input(tmp_path: Path, monkeypatch
 
     captured: dict[str, object] = {}
 
-    async def fake_run_print_mode(session: AgentSession, message) -> int:
+    async def fake_run_print_mode(session: SessionRuntime, message) -> int:
         del session
         captured["message"] = message
         return 0
@@ -370,7 +370,7 @@ def test_cli_system_prompt_options(tmp_path: Path, monkeypatch) -> None:
 
     captured: dict[str, object] = {}
 
-    async def fake_run_print_mode(session: AgentSession, message: str) -> int:
+    async def fake_run_print_mode(session: SessionRuntime, message: str) -> int:
         captured["system_prompt"] = session._build_system_prompt()
         captured["message"] = message
         return 0
@@ -506,7 +506,7 @@ def test_cli_model_thinking_clamped_by_model_capability(tmp_path: Path, monkeypa
 
     captured: dict[str, object] = {}
 
-    async def fake_run_print_mode(session: AgentSession, message: str | None = None) -> int:
+    async def fake_run_print_mode(session: SessionRuntime, message: str | None = None) -> int:
         captured["provider"] = session.provider_name
         captured["model"] = session.model_id
         captured["thinking"] = session.thinking_level
@@ -566,7 +566,7 @@ def test_cli_list_models_shows_thinking_capability(tmp_path: Path) -> None:
 
 def test_cli_continue_allows_empty_prompt_in_print_and_json(tmp_path: Path, monkeypatch) -> None:
     session_dir = tmp_path / "sessions"
-    seed = AgentSession(
+    seed = SessionRuntime(
         cwd=str(tmp_path),
         provider="openai",
         model="gpt-4o-mini",
@@ -577,12 +577,12 @@ def test_cli_continue_allows_empty_prompt_in_print_and_json(tmp_path: Path, monk
 
     captured: dict[str, object] = {}
 
-    async def fake_run_print_mode(session: AgentSession, message: str | None = None) -> int:
+    async def fake_run_print_mode(session: SessionRuntime, message: str | None = None) -> int:
         captured["print_session"] = session.session_file
         captured["print_message"] = message
         return 0
 
-    async def fake_run_json_mode(session: AgentSession, message: str | None = None) -> int:
+    async def fake_run_json_mode(session: SessionRuntime, message: str | None = None) -> int:
         captured["json_session"] = session.session_file
         captured["json_message"] = message
         return 0
@@ -646,7 +646,7 @@ def test_cli_rejects_unknown_tools(tmp_path: Path) -> None:
 def test_cli_model_with_thinking_suffix(tmp_path: Path, monkeypatch) -> None:
     captured: dict[str, object] = {}
 
-    async def fake_run_print_mode(session: AgentSession, message: str | None = None) -> int:
+    async def fake_run_print_mode(session: SessionRuntime, message: str | None = None) -> int:
         captured["provider"] = session.provider_name
         captured["model"] = session.model_id
         captured["thinking"] = session.thinking_level
@@ -678,7 +678,7 @@ def test_cli_model_with_thinking_suffix(tmp_path: Path, monkeypatch) -> None:
 def test_cli_model_fuzzy_lookup(tmp_path: Path, monkeypatch) -> None:
     captured: dict[str, object] = {}
 
-    async def fake_run_print_mode(session: AgentSession, message: str | None = None) -> int:
+    async def fake_run_print_mode(session: SessionRuntime, message: str | None = None) -> int:
         captured["provider"] = session.provider_name
         captured["model"] = session.model_id
         captured["message"] = message
@@ -707,7 +707,7 @@ def test_cli_model_fuzzy_lookup(tmp_path: Path, monkeypatch) -> None:
 def test_cli_reads_piped_stdin_for_print_mode(tmp_path: Path, monkeypatch) -> None:
     captured: dict[str, object] = {}
 
-    async def fake_run_print_mode(session: AgentSession, message: str | None = None) -> int:
+    async def fake_run_print_mode(session: SessionRuntime, message: str | None = None) -> int:
         del session
         captured["message"] = message
         return 0
@@ -731,13 +731,13 @@ def test_cli_reads_piped_stdin_for_print_mode(tmp_path: Path, monkeypatch) -> No
 def test_cli_piped_stdin_defaults_to_print_mode(tmp_path: Path, monkeypatch) -> None:
     captured: dict[str, object] = {}
 
-    async def fake_run_print_mode(session: AgentSession, message: str | None = None) -> int:
+    async def fake_run_print_mode(session: SessionRuntime, message: str | None = None) -> int:
         del session
         captured["mode"] = "print"
         captured["message"] = message
         return 0
 
-    async def fake_run_interactive_mode(session: AgentSession, initial_message: str | None = None) -> int:
+    async def fake_run_interactive_mode(session: SessionRuntime, initial_message: str | None = None) -> int:
         del session, initial_message
         raise AssertionError("interactive mode should not be selected for piped stdin")
 
@@ -801,7 +801,7 @@ async def test_print_mode_outputs_only_last_assistant_for_multiple_prompts(tmp_p
                 stopReason="stop",
             )
 
-    session = AgentSession(
+    session = SessionRuntime(
         cwd=str(tmp_path),
         provider="openai",
         model="gpt-4o-mini",
@@ -836,7 +836,7 @@ def test_cli_list_models_accepts_positional_search(tmp_path: Path) -> None:
 def test_cli_multiple_messages_passed_as_sequence(tmp_path: Path, monkeypatch) -> None:
     captured: dict[str, object] = {}
 
-    async def fake_run_print_mode(session: AgentSession, message: str | list[str] | None = None) -> int:
+    async def fake_run_print_mode(session: SessionRuntime, message: str | list[str] | None = None) -> int:
         del session
         captured["message"] = message
         return 0
@@ -861,7 +861,7 @@ def test_cli_multiple_messages_passed_as_sequence(tmp_path: Path, monkeypatch) -
 def test_cli_models_applies_scoped_startup_model_and_thinking(tmp_path: Path, monkeypatch) -> None:
     captured: dict[str, object] = {}
 
-    async def fake_run_print_mode(session: AgentSession, message: str) -> int:
+    async def fake_run_print_mode(session: SessionRuntime, message: str) -> int:
         captured["provider"] = session.provider_name
         captured["model"] = session.model_id
         captured["thinking"] = session.thinking_level

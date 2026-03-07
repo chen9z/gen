@@ -5,9 +5,9 @@ from pathlib import Path
 
 import pytest
 
-from gen_agent.core.agent_session import AgentSession
 from gen_agent.models.content import TextContent
 from gen_agent.models.messages import AssistantMessage
+from gen_agent.runtime import SessionRuntime
 
 
 class _CaptureProvider:
@@ -48,7 +48,7 @@ async def test_agent_session_provider_call_uses_registry_runtime_model_config(tm
     monkeypatch.setenv("XDG_CONFIG_HOME", str(xdg))
     monkeypatch.setenv("ANTHROPIC_VERSION", "2024-01-01")
 
-    session = AgentSession(
+    session = SessionRuntime(
         cwd=str(tmp_path),
         provider="anthropic",
         model="claude-3-5-sonnet-latest",
