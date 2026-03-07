@@ -5,7 +5,6 @@ from typing import Any
 
 from rich.console import Group, RenderableType
 from rich.markdown import Markdown
-from rich.panel import Panel
 from rich.spinner import Spinner
 from rich.text import Text
 
@@ -214,54 +213,59 @@ class ToolRunBlock:
 
         if self.status == "running":
             label = Text()
-            label.append(f"  {display_name}", style="bold")
+            label.append(f"{display_name}", style="bold")
             if key_arg:
                 label.append(f" {key_arg}", style="dim")
             return Spinner("dots", text=label)
 
+        # Done state
         line = Text()
         if self.is_error:
-            line.append("  ✗ ", style="red")
+            line.append("✗ ", style="red")
         else:
-            line.append("  ✓ ", style="green")
+            line.append("✓ ", style="green")
         line.append(display_name, style="bold")
         if key_arg:
             line.append(f" {key_arg}", style="dim")
-        if self.duration > 0.1:
-            line.append(f" ({self.duration:.2f}s)", style="dim")
 
-        # P2: Compute change_info once, reuse below
+        # Change summary inline
         change_info = None
         if not self.is_error and self.result:
             change_info = extract_file_change_info(self.name, self.args, self.result)
             if change_info:
-                file_path, old_content, new_content = change_info
+                _file_path, old_content, new_content = change_info
                 diff_summary = summarize_diff(old_content, new_content)
-                line.append(f" [{diff_summary}]", style="cyan dim")
+                line.append(f" ({diff_summary})", style="cyan dim")
+
+        if self.duration > 0.1:
+            line.append(f" ({self.duration:.1f}s)", style="dim")
 
         if self.is_error and self.result_summary:
-            line.append(f" - {self.result_summary}", style="dim")
-
-        # Add visual indicators for expandable content
-        if self.is_error and self.error_detail:
-            indicator = "▼" if self._show_details else "▶"
-            line.append(f" {indicator}", style="dim")
-        elif change_info is not None:
-            indicator = "▼" if self._show_diff else "▶"
-            line.append(f" {indicator}", style="dim")
+            line.append(f" — {self.result_summary}", style="dim")
 
         parts: list[RenderableType] = [line]
 
-        # Show error details if available and expanded
-        if self.is_error and self.error_detail and self._show_details:
-            detail_text = Text(self.error_detail, style="red dim")
-            parts.append(Panel(detail_text, title="Error Details", border_style="red"))
+        # Expandable hint on next line
+        if self.is_error and self.error_detail:
+            hint_text = "Hide details" if self._show_details else "Show details"
+            indicator = "▼" if self._show_details else "▶"
+            parts.append(Text(f"  {indicator} {hint_text}", style="dim"))
+        elif change_info is not None:
+            hint_text = "Hide diff" if self._show_diff else "Show diff"
+            indicator = "▼" if self._show_diff else "▶"
+            parts.append(Text(f"  {indicator} {hint_text}", style="dim"))
 
-        # Show diff if available and expanded
+        # Expanded error details (indented, no Panel)
+        if self.is_error and self.error_detail and self._show_details:
+            for err_line in self.error_detail.splitlines()[:20]:
+                parts.append(Text(f"    {err_line}", style="red dim"))
+
+        # Expanded diff (indented, no Panel)
         if not self.is_error and self._show_diff and change_info:
-            file_path, old_content, new_content = change_info
-            diff_view = render_diff(old_content, new_content, file_path)
-            parts.append(Panel(diff_view, title=f"Diff: {file_path}", border_style="cyan"))
+            _file_path, old_content, new_content = change_info
+            diff_view = render_diff(old_content, new_content, _file_path)
+            parts.append(Text("    ", style=""))  # spacer
+            parts.append(diff_view)
 
         return Group(*parts) if len(parts) > 1 else line
 
