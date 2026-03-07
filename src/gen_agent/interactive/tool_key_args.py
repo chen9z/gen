@@ -5,9 +5,9 @@ from __future__ import annotations
 from typing import Any
 
 TOOL_KEY_ARGS: dict[str, list[str]] = {
-    "Read": ["path"],
-    "Write": ["path"],
-    "Edit": ["path"],
+    "Read": ["path", "file_path"],
+    "Write": ["path", "file_path"],
+    "Edit": ["path", "file_path"],
     "Bash": ["command"],
     "Grep": ["pattern", "path"],
     "Find": ["pattern", "path"],
@@ -40,6 +40,17 @@ def normalize_tool_name(name: str) -> str:
     return name
 
 
+def _shorten_path(path: str, limit: int = 40) -> str:
+    """Show basename, or tail of path if longer than limit."""
+    if len(path) <= limit:
+        return path
+    import os
+    base = os.path.basename(path)
+    if len(base) <= limit:
+        return base
+    return base[:limit - 3] + "..."
+
+
 def extract_tool_key_arg(name: str, args: dict[str, Any]) -> str:
     """Extract the most relevant argument for display."""
     normalized = normalize_tool_name(name)
@@ -47,10 +58,12 @@ def extract_tool_key_arg(name: str, args: dict[str, Any]) -> str:
     for key in keys:
         value = args.get(key)
         if isinstance(value, str) and value.strip():
-            return value[:60] + "..." if len(value) > 60 else value
+            if key in ("path", "file_path"):
+                return _shorten_path(value)
+            return value[:40] + "..." if len(value) > 40 else value
     for value in args.values():
         if isinstance(value, str) and value.strip():
-            return value[:60] + "..." if len(value) > 60 else value
+            return value[:40] + "..." if len(value) > 40 else value
     return ""
 
 
