@@ -18,10 +18,11 @@ from gen_agent.runtime import SessionRuntime
 from .blocks import AssistantBlock, ToolRunBlock, UserPromptBlock
 from .event_processor import EventProcessor
 from .render_engine import RenderEngine
-from .state_manager import StateManager
 
 _NOTICE_TTL_SECONDS = {"info": 2.5, "warning": 4.0, "error": 6.0}
 _MAX_VISIBLE_NOTICES = 2
+_NOTICE_ICONS = {"info": "ℹ", "warning": "⚠", "error": "✗"}
+_NOTICE_COLORS = {"info": "dim", "warning": "yellow", "error": "red"}
 
 
 class LiveView:
@@ -49,7 +50,20 @@ class LiveView:
         self._title: str | None = None
         self._input_usage_parts: list[str] = []
 
-        self._state = StateManager(entry_limit=entry_limit)
+        # Inlined from StateManager
+        self._entries: list[UserPromptBlock | AssistantBlock | ToolRunBlock] = []
+        self._tool_runs: dict[str, ToolRunBlock] = {}
+        self._draft: AssistantBlock | None = None
+        self._active_toolcall_index: int | None = None
+        self._toolcall_phase: dict[int, str] = {}
+        self._sticky_error_notice: str | None = None
+        self._working = False
+        self._mooning_spinner: Spinner | None = None
+        self._committed_count = 0
+        self._current_usage: dict[str, Any] = {"input": 0, "output": 0, "cost": 0.0}
+        self._current_turn = 0
+        self._max_turns = 0
+
         self._render_engine = RenderEngine(self._console, batch_interval)
         self._event_processor = EventProcessor(self)
         self._stream_tick = 0
@@ -61,88 +75,6 @@ class LiveView:
     @property
     def console(self) -> Console:
         return self._console
-
-    @property
-    def _entries(self) -> list[AssistantBlock | ToolRunBlock]:
-        return self._state.get_entries()
-
-    @property
-    def _draft(self) -> AssistantBlock | None:
-        return self._state.get_draft()
-
-    @_draft.setter
-    def _draft(self, value: AssistantBlock | None) -> None:
-        self._state.set_draft(value)
-
-    @property
-    def _tool_runs(self) -> dict[str, ToolRunBlock]:
-        return self._state._tool_runs
-
-    @property
-    def _working(self) -> bool:
-        return self._state.is_working()
-
-    @_working.setter
-    def _working(self, value: bool) -> None:
-        self._state.set_working(value)
-
-    @property
-    def _sticky_error_notice(self) -> str | None:
-        return self._state.get_sticky_error_notice()
-
-    @_sticky_error_notice.setter
-    def _sticky_error_notice(self, value: str | None) -> None:
-        self._state.set_sticky_error_notice(value)
-
-    @property
-    def _mooning_spinner(self) -> Spinner | None:
-        return self._state.get_mooning_spinner()
-
-    @_mooning_spinner.setter
-    def _mooning_spinner(self, value: Spinner | None) -> None:
-        self._state.set_mooning_spinner(value)
-
-    @property
-    def _committed_count(self) -> int:
-        return self._state.get_committed_count()
-
-    @_committed_count.setter
-    def _committed_count(self, value: int) -> None:
-        self._state.set_committed_count(value)
-
-    @property
-    def _current_usage(self) -> dict[str, Any]:
-        return self._state.get_current_usage()
-
-    @property
-    def _current_turn(self) -> int:
-        return self._state.get_turn_progress()[0]
-
-    @_current_turn.setter
-    def _current_turn(self, value: int) -> None:
-        _, max_turns = self._state.get_turn_progress()
-        self._state.set_turn_progress(value, max_turns)
-
-    @property
-    def _max_turns(self) -> int:
-        return self._state.get_turn_progress()[1]
-
-    @_max_turns.setter
-    def _max_turns(self, value: int) -> None:
-        current, _ = self._state.get_turn_progress()
-        self._state.set_turn_progress(current, value)
-
-    @property
-    def _active_toolcall_index(self) -> int | None:
-        return self._state.get_active_toolcall_index()
-
-    @_active_toolcall_index.setter
-    def _active_toolcall_index(self, value: int | None) -> None:
-        self._state.set_active_toolcall_index(value)
-
-    @property
-    def _toolcall_phase(self) -> dict[int, str]:
-        return self._state._toolcall_phase
 
     @property
     def _live(self):
@@ -184,6 +116,18 @@ class LiveView:
     def _max_interval(self) -> float:
         return self._render_engine._max_interval
 
+    # -- Usage helpers (inlined from StateManager) -------------------------
+
+    def _update_usage(self, input_tokens: int = 0, output_tokens: int = 0, cost: float = 0.0) -> None:
+        self._current_usage["input"] += input_tokens
+        self._current_usage["output"] += output_tokens
+        self._current_usage["cost"] += cost
+
+    def _reset_usage(self) -> None:
+        self._current_usage = {"input": 0, "output": 0, "cost": 0.0}
+
+    # -- Public API --------------------------------------------------------
+
     def print_welcome_banner(self) -> None:
         self._console.print(self.build_welcome_renderable())
 
@@ -222,8 +166,9 @@ class LiveView:
         self._notices.clear()
         self._sticky_error_notice = None
         self._input_usage_parts = []
-        self._state.reset_usage()
-        self._state.reset_turn_progress()
+        self._reset_usage()
+        self._current_turn = 0
+        self._max_turns = 0
         self._committed_count = 0
         self._last_activity_time = time.monotonic()
         self._stream_tick = 0
@@ -235,7 +180,7 @@ class LiveView:
 
     def stop(self) -> None:
         self._commit_ready_entries()
-        entries = list(self._entries[self._committed_count :])
+        entries = list(self._entries[self._committed_count:])
         notices = self._active_notices()
         self._render_engine.stop()
         self._commit_entries(entries, notices)
@@ -256,8 +201,9 @@ class LiveView:
         self._notices.clear()
         if clear_usage:
             self._input_usage_parts = []
-        self._state.reset_usage()
-        self._state.reset_turn_progress()
+        self._reset_usage()
+        self._current_turn = 0
+        self._max_turns = 0
         self._committed_count = 0
         self._stream_tick = 0
         self._dirty = False
@@ -307,7 +253,7 @@ class LiveView:
             return True
         if self._widgets_above or self._widgets_below:
             return True
-        if self._entries[self._committed_count :] or self._mooning_spinner is not None:
+        if self._entries[self._committed_count:] or self._mooning_spinner is not None:
             return True
         if self._active_notices():
             return True
@@ -344,9 +290,10 @@ class LiveView:
         return active[-_MAX_VISIBLE_NOTICES:]
 
     def add_notice(self, message: str, *, level: str = "info") -> None:
-        color = {"info": "dim", "warning": "yellow", "error": "red"}.get(level, "dim")
+        icon = _NOTICE_ICONS.get(level, "ℹ")
+        color = _NOTICE_COLORS.get(level, "dim")
         if self._live is None:
-            self._console.print(Text(f"  {message}", style=color))
+            self._console.print(Text(f"{icon} {message}", style=color))
             return
         ttl = _NOTICE_TTL_SECONDS.get(level, _NOTICE_TTL_SECONDS["info"])
         self._notices.append((level, message, time.monotonic() + ttl))
@@ -381,6 +328,13 @@ class LiveView:
                     entry.toggle_details()
                 elif not entry.is_error and entry.result:
                     entry.toggle_diff()
+                self.request_refresh()
+                break
+
+    def toggle_last_thinking(self) -> None:
+        for entry in reversed(self._entries):
+            if isinstance(entry, AssistantBlock) and entry.thinking:
+                entry.toggle_thinking()
                 self.request_refresh()
                 break
 
@@ -465,8 +419,9 @@ class LiveView:
         for entry in entries:
             self._console.print(entry.render())
         for level, text in notices:
-            color = {"info": "dim", "warning": "yellow", "error": "red"}.get(level, "dim")
-            self._console.print(Text(f"  {text}", style=color))
+            icon = _NOTICE_ICONS.get(level, "ℹ")
+            color = _NOTICE_COLORS.get(level, "dim")
+            self._console.print(Text(f"{icon} {text}", style=color))
 
     def _build_renderable(self) -> RenderableType:
         header_parts: list[RenderableType] = []
@@ -480,7 +435,7 @@ class LiveView:
         for _key, lines in sorted(self._widgets_above.items()):
             header_parts.extend(Text(line) for line in lines)
 
-        active_entries = self._entries[self._committed_count :]
+        active_entries = self._entries[self._committed_count:]
         for entry in active_entries:
             main_parts.append(entry.render())
 
@@ -490,11 +445,12 @@ class LiveView:
         notices = self._active_notices()
         if notices:
             level, text = notices[-1]
-            color = {"info": "dim", "warning": "yellow", "error": "red"}.get(level, "dim")
-            footer_parts.append(Text(f"  {text}", style=color))
+            icon = _NOTICE_ICONS.get(level, "ℹ")
+            color = _NOTICE_COLORS.get(level, "dim")
+            footer_parts.append(Text(f"{icon} {text}", style=color))
 
         if self._status_items:
-            status_line = " · ".join(f"{key}={value}" for key, value in self._status_items.items())
+            status_line = " · ".join(self._status_items.values())
             footer_parts.append(Text(f"  {status_line}", style="dim"))
 
         if self._footer_lines:

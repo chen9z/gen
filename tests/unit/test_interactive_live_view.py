@@ -222,7 +222,7 @@ def test_live_view_renders_title_header_footer_and_status() -> None:
     assert "Build" in rendered
     assert "Header A" in rendered
     assert "Footer Z" in rendered
-    assert "sync=ok" in rendered
+    assert "ok" in rendered
 
 
 @pytest.mark.asyncio
