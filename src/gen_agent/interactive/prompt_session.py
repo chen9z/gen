@@ -113,8 +113,9 @@ class InteractivePromptSession:
                 "completion-menu": "bg:#1f2430 #d5def5",
                 "completion-menu.completion.current": "bg:#2f67d8 #ffffff",
                 "completion-menu.meta.completion.current": "bg:#2f67d8 #ffffff",
-                "bottom-toolbar": "noreverse",
+                "bottom-toolbar": "noreverse #555555",
                 "bottom-toolbar.text": "#555555",
+                "separator": "#555555",
             }
         )
         self._session = PromptSession(
@@ -145,19 +146,11 @@ class InteractivePromptSession:
         )
 
     def _sync_bottom_toolbar(self, text: str) -> None:
-        next_toolbar = None
-        if self._toolbar_provider is not None and not text:
-            next_toolbar = self._bottom_toolbar
-        if self._session.bottom_toolbar is next_toolbar:
-            return
-        self._session.bottom_toolbar = next_toolbar
+        # Always show bottom toolbar as lower separator
+        if self._session.bottom_toolbar is not self._bottom_toolbar:
+            self._session.bottom_toolbar = self._bottom_toolbar
 
     def _bottom_toolbar(self) -> str:
-        if self._toolbar_provider is None:
-            return ""
-        text = self._toolbar_provider()
-        if not text:
-            return ""
         app = get_app_or_none()
         cols = 80
         if app is not None:
@@ -165,7 +158,11 @@ class InteractivePromptSession:
                 cols = int(app.output.get_size().columns)
             except Exception:
                 pass
-        return _fit_toolbar_text(text, cols)
+        if self._toolbar_provider is not None:
+            text = self._toolbar_provider()
+            if text:
+                return _fit_toolbar_text(text, cols)
+        return "─" * max(cols - 1, 1)
 
     def record_submission(self, text: str) -> None:
         self._history_store.append(text)
