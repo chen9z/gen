@@ -47,6 +47,7 @@ class AssistantBlock:
     _text_parts: list[str] = field(default_factory=list, init=False)
     _thinking_parts: list[str] = field(default_factory=list, init=False)
     _cached_render: RenderableType | None = field(default=None, init=False)
+    _show_thinking: bool = field(default=False, init=False)
 
     def has_content(self) -> bool:
         return bool(self.text or self.thinking or self.toolcalls or self.error)
@@ -84,6 +85,10 @@ class AssistantBlock:
     def set_toolcall_from_message(self, content_index: int, name: str, args_json: str) -> None:
         self.toolcalls[content_index] = ToolcallPreview(name=name, args=args_json)
 
+    def toggle_thinking(self) -> None:
+        self._show_thinking = not self._show_thinking
+        self._cached_render = None  # invalidate cache
+
     def finish(self) -> None:
         self.done = True
         # Clear accumulated lists to free memory (keep only final strings)
@@ -99,21 +104,34 @@ class AssistantBlock:
         return collapsed[: limit - 3] + "..."
 
     def render(self) -> RenderableType:
-        # Use cached render for completed blocks
         if self.done and self._cached_render is not None:
             return self._cached_render
 
         parts: list[RenderableType] = []
 
-        # P10: Only show thinking spinner when no text is streaming yet
-        if self.thinking and not self.done and not self.text:
-            parts.append(Spinner("dots", text="Thinking...", style="dim italic"))
+        # Thinking display
+        if self.thinking:
+            if not self.done and not self.text:
+                # Still thinking, no text yet — spinner
+                parts.append(Spinner("dots", text="Thinking...", style="dim italic"))
+            else:
+                # Collapsible thinking summary
+                char_count = len(self.thinking)
+                indicator = "▼" if self._show_thinking else "▶"
+                parts.append(Text(f"{indicator} Thinking ({char_count} chars)", style="dim"))
+                if self._show_thinking:
+                    # Show thinking content indented
+                    preview = self.thinking[:500]
+                    if len(self.thinking) > 500:
+                        preview += "..."
+                    for line in preview.splitlines():
+                        parts.append(Text(f"  │ {line}", style="dim italic"))
 
+        # Main text
         if self.text:
             if self.done:
                 parts.append(Markdown(self.text))
             else:
-                # Use streaming syntax highlighting if code blocks detected
                 if self._highlighter.has_code_blocks():
                     highlighted = self._highlighter.render_highlighted()
                     parts.extend(highlighted)
@@ -123,25 +141,24 @@ class AssistantBlock:
         elif not self.done and not self.thinking:
             parts.append(Spinner("dots", text="Thinking...", style="dim italic"))
 
-        # P11: Only show toolcall preview during streaming, not after done
+        # Toolcall preview (streaming only)
         if self.toolcalls and not self.done:
-            preview = sorted(self.toolcalls.items())[-1][1]  # only last one
+            preview = sorted(self.toolcalls.items())[-1][1]
             name = preview.name.strip()
             if name:
                 key_arg = extract_key_arg_from_json(name, preview.args)
                 tc = Text()
-                tc.append("  ⏺ ", style="dim cyan")
+                tc.append("⏺ ", style="dim cyan")
                 tc.append(normalize_tool_name(name), style="bold")
                 if key_arg:
                     tc.append(f" {key_arg}", style="dim")
                 parts.append(tc)
 
         if self.error:
-            parts.append(Text(f"Error: {self.error}", style="red"))
+            parts.append(Text(f"✗ Error: {self.error}", style="red"))
 
         result = Group(*parts) if parts else Text("")
 
-        # Cache the render result for completed blocks
         if self.done:
             self._cached_render = result
 
