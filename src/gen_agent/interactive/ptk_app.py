@@ -226,6 +226,7 @@ class GenInteractiveApp:
             self._prompt_session.record_submission(payload)
             if echo_user:
                 self._live_view.print_user_prompt(payload)
+            self._print_input_separator()
             self._force_quit = False
             self._live_view.clear_input_usage_text()
             self._live_view.start()
