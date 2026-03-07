@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from gen_agent.core.agent_session import AgentSession
+from gen_agent.runtime import SessionRuntime
 
 from .dialogs import create_select_dialog, run_with_timeout
 
@@ -26,7 +26,7 @@ async def choose_from_values(
     return await run_with_timeout(dialog.run_async(), timeout_ms)
 
 
-async def choose_session(session: AgentSession) -> str | None:
+async def choose_session(session: SessionRuntime) -> str | None:
     sessions = session.list_sessions(limit=30, include_current=False)
     values = [
         (
@@ -38,7 +38,7 @@ async def choose_session(session: AgentSession) -> str | None:
     return await choose_from_values("Resume Session", "Select a previous session", values)
 
 
-async def choose_tree(session: AgentSession) -> str | None:
+async def choose_tree(session: SessionRuntime) -> str | None:
     tree = session.get_tree(limit=80, include_root=True)
     entries = tree.get("entries", [])
     leaf_id = tree.get("leafId")

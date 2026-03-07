@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from typing import Any
 
-__all__ = ["AgentSession", "SessionManager"]
+__all__ = ["AgentSession", "SessionManager", "SessionRuntime"]
 
 
 def __getattr__(name: str) -> Any:
@@ -14,4 +14,8 @@ def __getattr__(name: str) -> Any:
         from .session_manager import SessionManager
 
         return SessionManager
+    if name == "SessionRuntime":
+        from gen_agent.runtime import SessionRuntime
+
+        return SessionRuntime
     raise AttributeError(name)

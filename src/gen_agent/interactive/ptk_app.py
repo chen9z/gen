@@ -7,10 +7,10 @@ import time
 from collections.abc import Iterable
 from typing import Any
 
-from gen_agent.core.agent_session import AgentSession
 from gen_agent.extensions import CustomEditorComponent, NoOpExtensionUIContext
 from gen_agent.models.events import AgentSessionEvent
 from gen_agent.models.messages import AssistantMessage
+from gen_agent.runtime import SessionRuntime
 
 from .blocks import LIVE_CHAR_LIMIT
 from .dialogs import create_confirm_dialog, create_input_dialog, run_with_timeout
@@ -151,7 +151,7 @@ class PtkExtensionUIContext:
 
 
 class GenInteractiveApp:
-    def __init__(self, session: AgentSession, initial_prompt: str | None = None):
+    def __init__(self, session: SessionRuntime, initial_prompt: str | None = None):
         self.session = session
         self.initial_prompt = initial_prompt
         self._session_unsub = None
@@ -376,7 +376,7 @@ class GenInteractiveApp:
         return 0
 
 
-async def run_interactive_mode(session: AgentSession, initial_message: str | None = None) -> int:
+async def run_interactive_mode(session: SessionRuntime, initial_message: str | None = None) -> int:
     if not sys.stdin.isatty() or not sys.stdout.isatty():
         from gen_agent.modes.print_mode import run_print_mode
 

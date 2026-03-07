@@ -17,6 +17,7 @@
 ## 已对齐（已交付）
 
 - CLI/运行时基线：`gen` 基于 `Typer`，边界契约基于 `Pydantic v2`，支持 `interactive|print|json|rpc` 模式。
+- 运行时分层：新增 `SessionRuntime` 作为主入口，`AgentSession` 保留为兼容 shim；`runtime/` 层负责 session/runtime 协调，`core/` 继续保留纯服务与底层 agent loop。
 - 非交互行为：管道输入默认进入 print 模式；多消息参数顺序执行；`print/json` 在 provider 错误时返回非 0 退出码；`@图片` 可作为图片附件直传模型。
 - Provider：OpenAI 与 Anthropic 运行于同一 agent loop，保留 assistant 的 tool-call 历史。
 - 会话运行时：JSONL 树结构持久化；支持 v1/v2/v3 迁移；`resume/continue` 可恢复 provider/model/thinking；支持 fork/tree/compact。
@@ -35,6 +36,7 @@
 - 扩展体系：Python 原生扩展 API（`register_tool`、`register_command`、`register_flag`、`on(event, handler)`），支持异步命令处理器。
 - 扩展 UI（本轮 1:1 对齐范围）：`select/confirm/input/editor`、`notify`、`setStatus`、`setWidget`、`setHeader`、`setFooter`、`setTitle`、`setEditorText/getEditorText`、`setEditorComponent` 已在 interactive/rpc 路径接入（`uiExtensionsEnabled` 控制）；interactive 下 `header/footer/title` 仅作用于当前轮 live 视图。
 - 扩展 UI 已收敛为纯文本语义：`setWidget/setHeader/setFooter` 仅接受 `str | list[str] | None`；`setEditorComponent` 仅接受文本编辑配置对象；不再支持组件工厂与 `dispose` 生命周期。
+- 事件 envelope：所有 `AgentSessionEvent` 增加可选 `runId/actorId/parentRunId/sessionId` 字段，为后续 delegation/subagent 运行单元预留元数据；当前固定单 actor `main`。
 - 扩展迁移文档：`/Users/chen/workspace/gen/docs/extensions-migration.md`
 - 模型控制：scoped models（精确/通配/模糊）、thinking 后缀、前后向模型轮换、`models.json` 能力钳制。
 - 配置与鉴权优先级：`CLI > auth.json > ENV > models.json(provider.apiKey)`；支持 XDG + 项目级配置合并。
@@ -147,4 +149,5 @@
 - 扩展运行时为 Python 原生实现，不执行 TypeScript 扩展。
 - interactive 模式已迁移到 PTK+Rich 单视图，不再保留 Textual 三栏实现与兼容分支。
 - 模型配置机制已对齐 `pi-mono` 的 `ModelRegistry` 语义；OAuth 登录流仍未纳入本轮范围。
+- `runtime/` 已拆出 `SessionRuntime`、`RunExecutor`、`CommandRouter`、`EventEmitter` 四类协作者，后续 subagent/delegation 仅在该层继续扩展，不再回灌到 legacy `AgentSession`。
 - 成本核算依赖 `models.json` 中的模型 pricing 字段。

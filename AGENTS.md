@@ -3,11 +3,13 @@
 ## Project Structure & Module Organization
 Core code is in `src/gen_agent/`:
 - `cli/` for Typer entrypoints (`gen` command wiring).
-- `core/` for session lifecycle, settings/auth/model stores, and agent loop logic.
+- `runtime/` for the main runtime entrypoint and orchestration helpers (`SessionRuntime`, `RunExecutor`, `CommandRouter`, `EventEmitter`).
+- `core/` for pure services and lower-level runtime building blocks (settings/auth/model stores, session persistence, compaction, system prompt, and agent loop logic).
 - `modes/` for `interactive`, `print`, `json`, and `rpc` runtime paths.
 - `interactive/` for prompt_toolkit + Rich interactive runtime (app/layout/keymap/pickers/render).
 - `providers/`, `tools/`, `resources/`, `extensions/`, and `models/` for integrations and shared schemas.
 - `extensions/ui.py` 定义扩展 UI 纯文本上下文协议与 no-op 实现；interactive/rpc 模式分别绑定 UI bridge。
+- `core/agent_session.py` is a compatibility shim; prefer `SessionRuntime` for new internal runtime integrations.
 
 Tests are organized by scope:
 - `tests/unit/` for focused component behavior.

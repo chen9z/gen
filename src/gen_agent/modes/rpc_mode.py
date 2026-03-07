@@ -8,9 +8,9 @@ from typing import Any
 import orjson
 from pydantic import TypeAdapter
 
-from gen_agent.core.agent_session import AgentSession
 from gen_agent.extensions import CustomEditorComponent, NoOpExtensionUIContext
 from gen_agent.models.rpc import RpcCommand, RpcResponse
+from gen_agent.runtime import SessionRuntime
 
 _rpc_adapter = TypeAdapter(RpcCommand)
 
@@ -216,7 +216,7 @@ class RpcExtensionUIContext:
 
 
 class RpcMode:
-    def __init__(self, session: AgentSession):
+    def __init__(self, session: SessionRuntime):
         self.session = session
         self._active_operation_task: asyncio.Task[None] | None = None
         self._background_tasks: set[asyncio.Task[None]] = set()
@@ -482,5 +482,5 @@ class RpcMode:
         return 0
 
 
-async def run_rpc_mode(session: AgentSession) -> int:
+async def run_rpc_mode(session: SessionRuntime) -> int:
     return await RpcMode(session).run()

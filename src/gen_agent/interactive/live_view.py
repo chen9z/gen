@@ -11,9 +11,9 @@ from rich.panel import Panel
 from rich.spinner import Spinner
 from rich.text import Text
 
-from gen_agent.core.agent_session import AgentSession
 from gen_agent.models.events import AgentSessionEvent
 from gen_agent.models.messages import AssistantMessage
+from gen_agent.runtime import SessionRuntime
 
 from .blocks import AssistantBlock, ToolRunBlock, UserPromptBlock
 from .event_processor import EventProcessor
@@ -29,7 +29,7 @@ class LiveView:
 
     def __init__(
         self,
-        session: AgentSession,
+        session: SessionRuntime,
         *,
         console: Console | None = None,
         batch_interval: float = 0.04,

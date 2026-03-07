@@ -9,11 +9,11 @@ from typing import Any
 import typer
 
 from gen_agent import __version__
-from gen_agent.core.agent_session import AgentSession
 from gen_agent.core.model_store import get_model_definition
 from gen_agent.models.content import ImageContent
 from gen_agent.models.prompt import PromptInput
 from gen_agent.modes import run_interactive_mode, run_json_mode, run_print_mode, run_rpc_mode
+from gen_agent.runtime import SessionRuntime
 from gen_agent.tools import create_all_tools
 
 app = typer.Typer(add_completion=False, no_args_is_help=False, help="gen - AI coding assistant")
@@ -268,8 +268,8 @@ def _build_session(
     system_prompt: str | None,
     append_system_prompt: str | None,
     extension_flag_values: dict[str, bool | str] | None = None,
-) -> AgentSession:
-    return AgentSession(
+) -> SessionRuntime:
+    return SessionRuntime(
         cwd=cwd,
         provider=provider,
         model=model,

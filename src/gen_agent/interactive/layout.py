@@ -3,13 +3,13 @@ from __future__ import annotations
 from rich.panel import Panel
 from rich.text import Text
 
-from gen_agent.core.agent_session import AgentSession
+from gen_agent.runtime import SessionRuntime
 
 from .render import InteractiveRenderState
 
 
 def build_status_line(
-    session: AgentSession,
+    session: SessionRuntime,
     state: InteractiveRenderState,
     editor_title: str | None = None,
     current_turn: int = 0,

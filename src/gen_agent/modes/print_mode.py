@@ -3,8 +3,8 @@ from __future__ import annotations
 import sys
 from collections.abc import Iterable
 
-from gen_agent.core.agent_session import AgentSession
 from gen_agent.models.prompt import PromptInput
+from gen_agent.runtime import SessionRuntime
 
 
 def _message_to_text(message) -> str:
@@ -45,7 +45,7 @@ def _normalize_prompts(message: str | PromptInput | Iterable[str | PromptInput] 
 
 
 async def run_print_mode(
-    session: AgentSession,
+    session: SessionRuntime,
     message: str | PromptInput | Iterable[str | PromptInput] | None = None,
 ) -> int:
     prompt_list = _normalize_prompts(message)

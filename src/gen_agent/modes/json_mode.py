@@ -5,8 +5,8 @@ from collections.abc import Iterable
 
 import orjson
 
-from gen_agent.core.agent_session import AgentSession
 from gen_agent.models.prompt import PromptInput
+from gen_agent.runtime import SessionRuntime
 
 
 def _normalize_prompts(message: str | PromptInput | Iterable[str | PromptInput] | None) -> list[PromptInput]:
@@ -34,7 +34,7 @@ def _normalize_prompts(message: str | PromptInput | Iterable[str | PromptInput] 
 
 
 async def run_json_mode(
-    session: AgentSession,
+    session: SessionRuntime,
     message: str | PromptInput | Iterable[str | PromptInput] | None = None,
 ) -> int:
     header = session.session_manager.header
