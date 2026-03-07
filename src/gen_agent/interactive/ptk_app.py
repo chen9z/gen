@@ -290,6 +290,9 @@ class GenInteractiveApp:
     async def toggle_tool_details(self) -> None:
         self._live_view.toggle_last_tool_details()
 
+    async def toggle_thinking(self) -> None:
+        self._live_view.toggle_last_thinking()
+
     async def run_async(self) -> int:
         if self.session.ui_extensions_enabled:
             self.session.bind_ui_context(PtkExtensionUIContext(self))

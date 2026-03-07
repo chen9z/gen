@@ -20,6 +20,8 @@ class _InteractiveActions(Protocol):
 
     async def toggle_tool_details(self) -> None: ...
 
+    async def toggle_thinking(self) -> None: ...
+
 
 def _spawn(event, action: Awaitable[None]) -> None:
     creator = getattr(event.app, "create_background_task", None)
@@ -59,5 +61,9 @@ def build_key_bindings(actions: _InteractiveActions) -> KeyBindings:
     @kb.add("c-d")
     def _toggle_details(event) -> None:
         _spawn(event, actions.toggle_tool_details())
+
+    @kb.add("c-e")
+    def _toggle_thinking(event) -> None:
+        _spawn(event, actions.toggle_thinking())
 
     return kb

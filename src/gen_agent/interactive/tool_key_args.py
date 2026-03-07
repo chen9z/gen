@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import os
 from typing import Any
 
 TOOL_KEY_ARGS: dict[str, list[str]] = {
@@ -44,7 +45,6 @@ def _shorten_path(path: str, limit: int = 40) -> str:
     """Show basename, or tail of path if longer than limit."""
     if len(path) <= limit:
         return path
-    import os
     base = os.path.basename(path)
     if len(base) <= limit:
         return base
