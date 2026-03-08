@@ -145,9 +145,7 @@ class InteractivePromptSession:
         )
 
     def _sync_bottom_toolbar(self, text: str) -> None:
-        next_toolbar = None
-        if self._toolbar_provider is not None and not text:
-            next_toolbar = self._bottom_toolbar
+        next_toolbar = self._bottom_toolbar if self._toolbar_provider is not None else None
         if self._session.bottom_toolbar is next_toolbar:
             return
         self._session.bottom_toolbar = next_toolbar

@@ -5,6 +5,7 @@ from dataclasses import dataclass
 from typing import Literal
 
 from rich.console import RenderableType
+from rich.markdown import Markdown
 from rich.syntax import Syntax
 from rich.text import Text
 
@@ -84,11 +85,11 @@ class StreamingSyntaxHighlighter:
         last_pos = 0
 
         for block in self._blocks:
-            # Add text before code block
+            # Add text before code block (rendered as Markdown for formatting)
             if block.start_pos > last_pos:
                 text_before = self._buffer[last_pos : block.start_pos - len(block.language) - 4]
                 if text_before.strip():
-                    parts.append(Text(text_before))
+                    parts.append(Markdown(text_before))
 
             # Add highlighted code block
             if block.content:
@@ -112,7 +113,7 @@ class StreamingSyntaxHighlighter:
             # Currently in an open code block
             text_before = self._buffer[last_pos : self._current_block.start_pos - len(self._current_block.language) - 4]
             if text_before.strip():
-                parts.append(Text(text_before))
+                parts.append(Markdown(text_before))
 
             # Render incomplete code block with syntax highlighting
             if self._current_block.content:
@@ -128,10 +129,10 @@ class StreamingSyntaxHighlighter:
                 except Exception:
                     parts.append(Text(f"```{self._current_block.language}\n{self._current_block.content}"))
         elif last_pos < len(self._buffer):
-            # Add remaining text
+            # Add remaining text (rendered as Markdown)
             remaining = self._buffer[last_pos:]
             if remaining.strip():
-                parts.append(Text(remaining))
+                parts.append(Markdown(remaining))
 
         return parts
 

@@ -93,7 +93,7 @@ async def test_prompt_session_uses_toolbar_provider(monkeypatch, tmp_path) -> No
     assert session._session.bottom_toolbar().rstrip().endswith("usage line")
 
 
-def test_prompt_session_hides_toolbar_while_typing(monkeypatch, tmp_path) -> None:
+def test_prompt_session_keeps_toolbar_while_typing(monkeypatch, tmp_path) -> None:
     monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path / "config"))
     session = InteractivePromptSession(
         cwd=str(tmp_path),
@@ -103,8 +103,9 @@ def test_prompt_session_hides_toolbar_while_typing(monkeypatch, tmp_path) -> Non
 
     assert callable(session._session.bottom_toolbar)
 
+    # Toolbar stays visible while typing (prevents scroll jump)
     session._sync_bottom_toolbar("hello")
-    assert session._session.bottom_toolbar is None
+    assert callable(session._session.bottom_toolbar)
 
     session._sync_bottom_toolbar("")
     assert callable(session._session.bottom_toolbar)
