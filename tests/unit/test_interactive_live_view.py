@@ -33,6 +33,9 @@ class _FakeLive:
         _ = refresh
         self.update_calls += 1
 
+    def stop(self) -> None:
+        return
+
 
 def _assistant_message(text: str = "") -> AssistantMessage:
     return AssistantMessage(
@@ -142,6 +145,51 @@ def test_live_view_commits_done_entries_during_flush() -> None:
 
     assert view._committed_count == 1
     assert "hello" in console.export_text()
+
+
+def test_live_view_commits_completed_paragraphs_before_message_done() -> None:
+    console = Console(record=True, force_terminal=False, width=120)
+    view = LiveView(_DummySession(), console=console)
+    view._render_engine._live = _FakeLive()
+    message = _assistant_message()
+
+    view.start()
+    view.on_session_event(MessageUpdate(message=message, assistantMessageEvent={"type": "start"}))
+    view.on_session_event(
+        MessageUpdate(
+            message=message,
+            assistantMessageEvent={"type": "text_delta", "delta": "first paragraph\n\nsecond"},
+        )
+    )
+
+    view._flush_once()
+
+    assert "first paragraph" in console.export_text()
+    assert "second" not in console.export_text()
+    assert "second" in _render_text(view)
+
+
+def test_live_view_stop_does_not_repeat_previously_committed_paragraphs() -> None:
+    console = Console(record=True, force_terminal=False, width=120)
+    view = LiveView(_DummySession(), console=console)
+    view._render_engine._live = _FakeLive()
+    message = _assistant_message()
+
+    view.start()
+    view.on_session_event(MessageUpdate(message=message, assistantMessageEvent={"type": "start"}))
+    view.on_session_event(
+        MessageUpdate(
+            message=message,
+            assistantMessageEvent={"type": "text_delta", "delta": "first paragraph\n\nsecond"},
+        )
+    )
+    view._flush_once()
+    view.on_session_event(MessageUpdate(message=message, assistantMessageEvent={"type": "done"}))
+    view.stop()
+
+    rendered = console.export_text()
+    assert rendered.count("first paragraph") == 1
+    assert rendered.count("second") == 1
 
 
 def test_live_view_commit_on_stop_prints_entries_and_usage() -> None:

@@ -207,7 +207,7 @@ class LiveView:
             return True
         if self._widgets_above or self._widgets_below:
             return True
-        if self._committed_count < len(self._entries) or self._idle_spinner is not None:
+        if any(self._entry_has_live_content(entry) for entry in self._entries) or self._idle_spinner is not None:
             return True
         if self._active_notices():
             return True
@@ -307,10 +307,11 @@ class LiveView:
         self.request_refresh()
 
     def add_assistant_message(self, message: AssistantMessage) -> None:
-        block = AssistantBlock(done=True)
+        block = AssistantBlock()
         self._event_processor._fill_block_from_message(block, message)
         if not block.has_content() and message.error_message:
             block.error = message.error_message
+        block.finish()
         self._append_entry(block)
         self.request_refresh()
 
@@ -336,7 +337,7 @@ class LiveView:
         self._entries.append(entry)
         while len(self._entries) > self._entry_limit:
             removed = self._entries.popleft()
-            if self._committed_count > 0:
+            if self._entry_is_scrollback_done(removed) and self._committed_count > 0:
                 self._committed_count -= 1
             if removed is self._draft:
                 self._draft = None
@@ -348,21 +349,25 @@ class LiveView:
         self._last_activity_time = time.monotonic()
 
     def _commit_ready_entries(self) -> None:
-        if self._committed_count >= len(self._entries):
-            return
-        new_committed = self._committed_count
-        for index in range(self._committed_count, len(self._entries)):
-            entry = self._entries[index]
-            if isinstance(entry, AssistantBlock) and entry.done:
+        new_committed = 0
+        changed = False
+        for entry in self._entries:
+            if isinstance(entry, AssistantBlock):
+                for renderable in entry.drain_scrollback():
+                    self._console.print(renderable)
+                    changed = True
+                if entry.done and not entry.scrollback_done:
+                    if entry.has_live_content():
+                        self._console.print(entry.render())
+                        changed = True
+                    entry.scrollback_done = True
+            elif isinstance(entry, ToolRunBlock) and entry.status == "done" and not entry.scrollback_done:
                 self._console.print(entry.render())
-                new_committed = index + 1
-                continue
-            if isinstance(entry, ToolRunBlock) and entry.status == "done":
-                self._console.print(entry.render())
-                new_committed = index + 1
-                continue
-            break
-        if new_committed > self._committed_count:
+                entry.scrollback_done = True
+                changed = True
+            if self._entry_is_scrollback_done(entry):
+                new_committed += 1
+        if changed or new_committed != self._committed_count:
             self._committed_count = new_committed
             self._dirty = True
 
@@ -372,7 +377,16 @@ class LiveView:
         notices: Sequence[tuple[str, str]],
     ) -> None:
         for entry in entries:
-            self._console.print(entry.render())
+            if isinstance(entry, AssistantBlock):
+                for renderable in entry.drain_scrollback():
+                    self._console.print(renderable)
+                if entry.has_live_content():
+                    self._console.print(entry.render())
+                entry.scrollback_done = True
+                continue
+            if isinstance(entry, ToolRunBlock):
+                self._console.print(entry.render())
+                entry.scrollback_done = True
         for level, text in notices:
             icon = _NOTICE_ICONS.get(level, "ℹ")
             color = _NOTICE_COLORS.get(level, "dim")
@@ -388,7 +402,7 @@ class LiveView:
         for _key, lines in sorted(self._widgets_above.items()):
             parts.extend(Text(line) for line in lines)
 
-        active_entries = list(self._entries)[self._committed_count:]
+        active_entries = [entry for entry in self._entries if self._entry_has_live_content(entry)]
         for entry in active_entries:
             parts.append(entry.render())
 
@@ -424,3 +438,12 @@ class LiveView:
             parts.append(Text("  Ctrl+C to interrupt", style="dim"))
 
         return Group(*parts) if parts else Text("")
+
+    @staticmethod
+    def _entry_is_scrollback_done(entry: AssistantBlock | ToolRunBlock) -> bool:
+        return bool(getattr(entry, "scrollback_done", False))
+
+    def _entry_has_live_content(self, entry: AssistantBlock | ToolRunBlock) -> bool:
+        if self._entry_is_scrollback_done(entry):
+            return False
+        return entry.has_live_content()

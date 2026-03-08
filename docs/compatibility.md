@@ -30,8 +30,8 @@
 - interactive 渲染细节优化：支持同消息多 toolcall 预览并按 `contentIndex` 解析增量；超长完成态正文避免 Markdown 重排闪烁；输入区 usage 在空 prompt 时显示于下一行并靠右对齐，仅展示 `input/output/cache`；开始输入后隐藏该行以减少 prompt 重绘滚动；prompt 禁用软换行，长单行输入改为水平滚动。
 - interactive 行为对齐：`Ctrl+R/Ctrl+T` 选择器、`Ctrl+L/Ctrl+P` 模型轮换、`Ctrl+N` 新会话、`Ctrl+K` 压缩、`Ctrl+D` 展开最近工具详情、`Tab` 补全、`Up/Down` 历史、`Esc` 取消；picker/confirm/input/editor 统一使用共享 PTK dialog 样式与按钮文案。
 - interactive 输入增强：`Ctrl-J/Alt-Enter` 多行、slash fuzzy 补全、`@` 路径补全（忽略 `.git/node_modules/.venv/dist/build` 等目录）、历史持久化（`~/.config/gen-agent/user-history/<cwd_md5>.jsonl`）。
-- interactive 流式可视化增强：assistant 文本/thinking/toolcall 增量渲染，tool execution 以 in-progress/done 块持续展示。
-- interactive 当前轮渲染：assistant/tool/notice 仅在本轮 `Live` 区中增量显示；完成态 assistant/tool 会渐进提交到 scrollback，避免整轮结束时统一重打；不再保留固定 transcript 面板。
+- interactive 流式可视化增强：assistant 文本采用“稳定段落提交 + 尾部草稿 live”模式，已闭合段落/代码块优先提交到 scrollback，未完成尾段继续在 `Live` 区增量显示；thinking/toolcall 维持轻量增量展示，tool execution 以 in-progress/done 块持续展示。
+- interactive 当前轮渲染：assistant/tool/notice 仅在本轮 `Live` 区中增量显示；scrollback 以稳定片段渐进追加，减少整块 Markdown 重排和滚动跳动；不再保留固定 transcript 面板。
 - 资源体系：skills/prompt templates/themes/context 文件发现；冲突诊断；`/reload` 诊断输出；`/skill:name` 注入。
 - 扩展体系：Python 原生扩展 API（`register_tool`、`register_command`、`register_flag`、`on(event, handler)`），支持异步命令处理器。
 - 扩展 UI（本轮 1:1 对齐范围）：`select/confirm/input/editor`、`notify`、`setStatus`、`setWidget`、`setHeader`、`setFooter`、`setTitle`、`setEditorText/getEditorText`、`setEditorComponent` 已在 interactive/rpc 路径接入（`uiExtensionsEnabled` 控制）；interactive 下 `header/footer/title` 仅作用于当前轮 live 视图。

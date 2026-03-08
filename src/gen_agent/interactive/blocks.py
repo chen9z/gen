@@ -9,7 +9,6 @@ from rich.spinner import Spinner
 from rich.text import Text
 
 from .diff_renderer import extract_file_change_info, render_diff, summarize_diff
-from .syntax_highlighter import StreamingSyntaxHighlighter
 from .tool_key_args import extract_key_arg_from_json, extract_tool_key_arg, normalize_tool_name
 
 
@@ -40,11 +39,13 @@ class AssistantBlock:
     toolcalls: dict[int, ToolcallPreview] = field(default_factory=dict)
     error: str | None = None
     done: bool = False
-    _highlighter: StreamingSyntaxHighlighter = field(default_factory=StreamingSyntaxHighlighter, init=False)
     _text_parts: list[str] = field(default_factory=list, init=False)
     _thinking_parts: list[str] = field(default_factory=list, init=False)
     _cached_render: RenderableType | None = field(default=None, init=False)
     _show_thinking: bool = field(default=False, init=False)
+    _draft_text: str = field(default="", init=False)
+    _pending_segments: list[str] = field(default_factory=list, init=False)
+    scrollback_done: bool = field(default=False, init=False)
 
     def has_content(self) -> bool:
         return bool(self.text or self.thinking or self.toolcalls or self.error)
@@ -54,7 +55,8 @@ class AssistantBlock:
         if delta:
             self._text_parts.append(delta)
             self.text = "".join(self._text_parts)
-            self._highlighter.append(delta)
+            self._draft_text += delta
+            self._commit_stable_text_segments()
 
     def append_thinking(self, delta: str) -> None:
         """Efficiently append to thinking using list accumulation."""
@@ -88,10 +90,66 @@ class AssistantBlock:
 
     def finish(self) -> None:
         self.done = True
+        if self._draft_text:
+            self._pending_segments.append(self._draft_text)
+            self._draft_text = ""
         # Clear accumulated lists to free memory (keep only final strings)
         self._text_parts.clear()
         self._thinking_parts.clear()
-        self._highlighter.clear_buffer()
+
+    def has_pending_scrollback(self) -> bool:
+        return bool(self._pending_segments)
+
+    def has_live_content(self) -> bool:
+        if self._draft_text:
+            return True
+        if self.error:
+            return True
+        if self.thinking:
+            return True
+        if self.toolcalls and not self.done:
+            return True
+        return not self.done and not self.thinking
+
+    def drain_scrollback(self) -> list[RenderableType]:
+        segments = self._pending_segments[:]
+        self._pending_segments.clear()
+        return [self._render_text_segment(segment) for segment in segments]
+
+    def _commit_stable_text_segments(self) -> None:
+        stable_end = self._find_stable_boundary(self._draft_text)
+        if stable_end <= 0:
+            return
+        segment = self._draft_text[:stable_end]
+        self._pending_segments.append(segment)
+        self._draft_text = self._draft_text[stable_end:]
+
+    @staticmethod
+    def _find_stable_boundary(text: str) -> int:
+        if not text:
+            return 0
+        stable_end = 0
+        offset = 0
+        in_code_block = False
+        for line in text.splitlines(keepends=True):
+            offset += len(line)
+            if line.strip().startswith("```"):
+                in_code_block = not in_code_block
+                if not in_code_block:
+                    stable_end = offset
+                continue
+            if not in_code_block and line.strip() == "":
+                stable_end = offset
+        if text.strip().endswith("```") and not in_code_block:
+            stable_end = len(text)
+        return stable_end
+
+    @staticmethod
+    def _render_text_segment(text: str) -> RenderableType:
+        body = text.strip("\n")
+        if not body:
+            return Text("")
+        return Markdown(body)
 
     def render(self) -> RenderableType:
         if self.done and self._cached_render is not None:
@@ -118,17 +176,12 @@ class AssistantBlock:
                         parts.append(Text(f"  │ {line}", style="dim italic"))
 
         # Main text
-        if self.text:
+        if self._draft_text:
             if self.done:
-                parts.append(Markdown(self.text))
+                parts.append(self._render_text_segment(self._draft_text))
             else:
-                if self._highlighter.has_code_blocks():
-                    highlighted = self._highlighter.render_highlighted()
-                    parts.extend(highlighted)
-                    parts.append(Text("▍"))
-                else:
-                    parts.append(Markdown(self.text))
-                    parts.append(Text("▍"))
+                parts.append(Text(self._draft_text.rstrip("\n")))
+                parts.append(Text("▍"))
         elif not self.done and not self.thinking:
             parts.append(Spinner("dots", text="Thinking...", style="dim italic"))
 
@@ -170,6 +223,7 @@ class ToolRunBlock:
     duration: float = 0.0
     _show_details: bool = False
     _show_diff: bool = False
+    scrollback_done: bool = False
 
     def mark_done(
         self,
@@ -198,6 +252,9 @@ class ToolRunBlock:
 
     def _key_arg(self) -> str:
         return extract_tool_key_arg(self.name, self.args)
+
+    def has_live_content(self) -> bool:
+        return not self.scrollback_done
 
     def render(self) -> RenderableType:
         key_arg = self._key_arg()
