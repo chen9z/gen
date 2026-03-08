@@ -113,9 +113,8 @@ class InteractivePromptSession:
                 "completion-menu": "bg:#1f2430 #d5def5",
                 "completion-menu.completion.current": "bg:#2f67d8 #ffffff",
                 "completion-menu.meta.completion.current": "bg:#2f67d8 #ffffff",
-                "bottom-toolbar": "noreverse #555555",
+                "bottom-toolbar": "noreverse",
                 "bottom-toolbar.text": "#555555",
-                "separator": "#555555",
             }
         )
         self._session = PromptSession(

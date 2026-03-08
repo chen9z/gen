@@ -12,15 +12,12 @@ from gen_agent.extensions.ui import CamelCaseUIMixin, normalize_lines as _normal
 from gen_agent.models.events import AgentSessionEvent
 from gen_agent.models.messages import AssistantMessage
 from gen_agent.runtime import SessionRuntime
-from rich.text import Text
 
 from .dialogs import create_confirm_dialog, create_input_dialog, run_with_timeout
 from .keymap import build_key_bindings
 from .live_view import LiveView
 from .pickers import choose_from_values, choose_session, choose_tree
 from .prompt_session import InteractivePromptSession
-
-_SEPARATOR_STYLE = "dim"
 
 _BUILTIN_COMMANDS = [
     "quit",
@@ -168,10 +165,6 @@ class GenInteractiveApp:
             return f"› {self._editor_component.placeholder}: "
         return "› "
 
-    def _print_input_separator(self) -> None:
-        width = self._live_view.console.width
-        self._live_view.console.print(Text("─" * width, style=_SEPARATOR_STYLE))
-
     def _cancel_active_run(self) -> None:
         now = time.monotonic()
         task = self._active_run_task
@@ -226,7 +219,6 @@ class GenInteractiveApp:
             self._prompt_session.record_submission(payload)
             if echo_user:
                 self._live_view.print_user_prompt(payload)
-            self._print_input_separator()
             self._force_quit = False
             self._live_view.clear_input_usage_text()
             self._live_view.start()
@@ -311,7 +303,6 @@ class GenInteractiveApp:
 
             while True:
                 try:
-                    self._print_input_separator()
                     text = await self._prompt_session.prompt_async(
                         self._editor_prompt_prefix(),
                         default=self._editor_text,
