@@ -144,7 +144,9 @@ def test_live_view_commits_done_entries_during_flush() -> None:
     view._flush_once()
 
     assert view._committed_count == 1
-    assert "hello" in console.export_text()
+    rendered = console.export_text()
+    assert "●" in rendered
+    assert "hello" in rendered
 
 
 def test_live_view_commits_completed_paragraphs_before_message_done() -> None:
@@ -210,7 +212,9 @@ def test_live_view_commit_on_stop_prints_entries_and_usage() -> None:
     view.stop()
 
     rendered = console.export_text()
+    assert "You" in rendered
     assert "hello" in rendered
+    assert "●" in rendered
     assert "done" in rendered
     assert "2.3k input" not in rendered
     assert len(view._entries) == 0
@@ -302,3 +306,32 @@ def test_live_view_hides_turn_progress() -> None:
 
     rendered = _render_text(view)
     assert "Turn 2/30" not in rendered
+
+
+def test_assistant_block_shows_full_thinking_without_collapsing() -> None:
+    block = AssistantBlock()
+    block.append_thinking("line 1\nline 2")
+
+    console = Console(record=True, force_terminal=False, width=120)
+    console.print(block.render())
+    rendered = console.export_text()
+
+    assert "line 1" in rendered
+    assert "line 2" in rendered
+    assert "Thinking (" not in rendered
+
+
+def test_tool_block_uses_status_dot_for_success_and_failure() -> None:
+    success = ToolRunBlock(tool_call_id="ok", name="Read", args={"path": "README.md"})
+    success.mark_done(is_error=False, result={"ok": True})
+    failure = ToolRunBlock(tool_call_id="err", name="Read", args={"path": "README.md"})
+    failure.mark_done(is_error=True, result_summary="error: boom", error_detail="boom")
+
+    console = Console(record=True, force_terminal=False, width=120)
+    console.print(success.render())
+    console.print(failure.render())
+    rendered = console.export_text()
+
+    assert rendered.count("●") >= 2
+    assert "✓ " not in rendered
+    assert "✗ " not in rendered

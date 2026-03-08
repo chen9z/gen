@@ -5,11 +5,39 @@ from typing import Any
 
 from rich.console import Group, RenderableType
 from rich.markdown import Markdown
+from rich.table import Table
 from rich.spinner import Spinner
 from rich.text import Text
 
 from .diff_renderer import extract_file_change_info, render_diff, summarize_diff
 from .tool_key_args import extract_key_arg_from_json, extract_tool_key_arg, normalize_tool_name
+
+_ASSISTANT_DOT_STYLE = "bold white"
+_TOOL_SUCCESS_DOT_STYLE = "bold green"
+_TOOL_ERROR_DOT_STYLE = "bold red"
+_USER_STRIP_STYLE = "on #1b2130"
+_USER_LABEL_STYLE = "bold #f3f4f6"
+_USER_TEXT_STYLE = "#e5e7eb"
+_THINKING_STYLE = "italic #9ca3af"
+
+
+def _two_column_row(leading: RenderableType, body: RenderableType, *, style: str | None = None) -> RenderableType:
+    table = Table.grid(expand=True)
+    table.add_column(width=2)
+    table.add_column(ratio=1)
+    if style:
+        table.style = style
+    table.add_row(leading, body)
+    return table
+
+
+def _single_column_row(body: RenderableType, *, style: str | None = None) -> RenderableType:
+    table = Table.grid(expand=True)
+    table.add_column(ratio=1)
+    if style:
+        table.style = style
+    table.add_row(body)
+    return table
 
 
 @dataclass(slots=True)
@@ -46,6 +74,7 @@ class AssistantBlock:
     _draft_text: str = field(default="", init=False)
     _pending_segments: list[str] = field(default_factory=list, init=False)
     scrollback_done: bool = field(default=False, init=False)
+    _chrome_emitted: bool = field(default=False, init=False)
 
     def has_content(self) -> bool:
         return bool(self.text or self.thinking or self.toolcalls or self.error)
@@ -114,7 +143,11 @@ class AssistantBlock:
     def drain_scrollback(self) -> list[RenderableType]:
         segments = self._pending_segments[:]
         self._pending_segments.clear()
-        return [self._render_text_segment(segment) for segment in segments]
+        renderables: list[RenderableType] = []
+        for segment in segments:
+            renderables.append(self._wrap_body(self._render_text_segment(segment)))
+            self._chrome_emitted = True
+        return renderables
 
     def _commit_stable_text_segments(self) -> None:
         stable_end = self._find_stable_boundary(self._draft_text)
@@ -151,6 +184,10 @@ class AssistantBlock:
             return Text("")
         return Markdown(body)
 
+    def _wrap_body(self, body: RenderableType) -> RenderableType:
+        leading = Text("●", style=_ASSISTANT_DOT_STYLE) if not self._chrome_emitted else Text(" ")
+        return _two_column_row(leading, body)
+
     def render(self) -> RenderableType:
         if self.done and self._cached_render is not None:
             return self._cached_render
@@ -159,21 +196,9 @@ class AssistantBlock:
 
         # Thinking display
         if self.thinking:
-            if not self.done and not self.text:
-                # Still thinking, no text yet — spinner
-                parts.append(Spinner("dots", text="Thinking...", style="dim italic"))
-            else:
-                # Collapsible thinking summary
-                char_count = len(self.thinking)
-                indicator = "▼" if self._show_thinking else "▶"
-                parts.append(Text(f"{indicator} Thinking ({char_count} chars)", style="dim"))
-                if self._show_thinking:
-                    # Show thinking content indented
-                    preview = self.thinking[:500]
-                    if len(self.thinking) > 500:
-                        preview += "..."
-                    for line in preview.splitlines():
-                        parts.append(Text(f"  │ {line}", style="dim italic"))
+            parts.append(Text("Thinking...", style=_THINKING_STYLE))
+            for line in self.thinking.splitlines():
+                parts.append(Text(line, style=_THINKING_STYLE))
 
         # Main text
         if self._draft_text:
@@ -201,7 +226,8 @@ class AssistantBlock:
         if self.error:
             parts.append(Text(f"✗ Error: {self.error}", style="red"))
 
-        result = Group(*parts) if parts else Text("")
+        body = Group(*parts) if parts else Text("")
+        result = self._wrap_body(body) if parts else Text("")
 
         if self.done:
             self._cached_render = result
@@ -270,9 +296,9 @@ class ToolRunBlock:
         # Done state
         line = Text()
         if self.is_error:
-            line.append("✗ ", style="red")
+            dot_style = _TOOL_ERROR_DOT_STYLE
         else:
-            line.append("✓ ", style="green")
+            dot_style = _TOOL_SUCCESS_DOT_STYLE
         line.append(display_name, style="bold")
         if key_arg:
             line.append(f" {key_arg}", style="dim")
@@ -316,7 +342,8 @@ class ToolRunBlock:
             parts.append(Text("    ", style=""))  # spacer
             parts.append(diff_view)
 
-        return Group(*parts) if len(parts) > 1 else line
+        body = Group(*parts) if len(parts) > 1 else line
+        return _two_column_row(Text("●", style=dot_style), body)
 
 
 @dataclass(slots=True)
@@ -325,6 +352,7 @@ class UserPromptBlock:
 
     def render(self) -> RenderableType:
         t = Text()
-        t.append("› ", style="bold magenta")
-        t.append(self.content, style="bold")
-        return t
+        t.append("You", style=_USER_LABEL_STYLE)
+        t.append("  ", style=_USER_LABEL_STYLE)
+        t.append(self.content, style=_USER_TEXT_STYLE)
+        return _single_column_row(t, style=_USER_STRIP_STYLE)

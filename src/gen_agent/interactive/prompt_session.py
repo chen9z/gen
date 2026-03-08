@@ -16,6 +16,7 @@ from .completers import AtPathCompleter, HybridCompleter, SlashFuzzyCompleter
 from .history import HistoryStore
 
 ToolbarProvider = Callable[[], str]
+_INPUT_STRIP_STYLE = "bg:#1b2130 #e5e7eb"
 
 
 def accept_completion_or_submit(buffer: Buffer) -> bool:
@@ -110,6 +111,9 @@ class InteractivePromptSession:
         merged_bindings = build_input_key_bindings(key_bindings)
         style = Style.from_dict(
             {
+                "prompt": _INPUT_STRIP_STYLE,
+                "text-area": _INPUT_STRIP_STYLE,
+                "text-area.focused": _INPUT_STRIP_STYLE,
                 "completion-menu": "bg:#1f2430 #d5def5",
                 "completion-menu.completion.current": "bg:#2f67d8 #ffffff",
                 "completion-menu.meta.completion.current": "bg:#2f67d8 #ffffff",

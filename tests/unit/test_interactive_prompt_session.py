@@ -149,3 +149,16 @@ def test_prompt_session_formats_toolbar_text_with_right_alignment_and_headroom(
     assert toolbar.rstrip().endswith("512 cache")
     assert _display_width(toolbar) <= 49
     assert _fit_toolbar_text("2.3k input · 79 output · 512 cache", 20).endswith("12 cache")
+
+
+def test_prompt_session_uses_same_background_for_prompt_and_input(monkeypatch, tmp_path) -> None:
+    monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path / "config"))
+    session = InteractivePromptSession(
+        cwd=str(tmp_path),
+        command_provider=lambda: [],
+    )
+
+    style_map = dict(session._session.style.style_rules)
+
+    assert style_map["prompt"] == style_map["text-area"]
+    assert style_map["prompt"] == style_map["text-area.focused"]
