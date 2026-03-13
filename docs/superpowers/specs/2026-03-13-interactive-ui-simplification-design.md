@@ -91,17 +91,29 @@ class InteractiveApp:
                 # Double Ctrl+C: force quit
                 signal.signal(signal.SIGINT, original_handler)
                 raise KeyboardInterrupt
+            # Use call_soon_threadsafe to safely cancel from signal context
             if self._active_task and not self._active_task.done():
-                self._active_task.cancel()
+                loop.call_soon_threadsafe(self._active_task.cancel)
 
         try:
             signal.signal(signal.SIGINT, _sigint_handler)
             self._active_task = asyncio.create_task(
                 self._session.prompt(prompt)
             )
-            await self._active_task
+            result = await self._active_task
+            # session.prompt() returns messages for slash commands (e.g. /model).
+            # Print any returned assistant messages as direct output.
+            if result:
+                for msg in result if isinstance(result, list) else [result]:
+                    content = getattr(msg, "content", None) or str(msg)
+                    if content:
+                        self._console.print(content)
         except asyncio.CancelledError:
             self._console.print("[yellow]Interrupted.[/yellow]")
+        except SystemExit:
+            pass  # /quit handled by session raises SystemExit
+        except Exception as exc:
+            self._console.print(f"[red]Error: {exc}[/red]")
         finally:
             signal.signal(signal.SIGINT, original_handler)
             self._active_task = None
@@ -110,25 +122,31 @@ class InteractiveApp:
             view.print_final(self._console)
 
     def _print_help(self):
-        """Show available commands."""
+        """Show common commands (session supports more via /commands)."""
         self._console.print(Panel(
+            "Common commands:\n"
             "/quit     Exit the session\n"
             "/model    Switch model (e.g. /model gpt-4)\n"
             "/resume   Resume a session (e.g. /resume <id>)\n"
             "/compact  Trigger manual compaction\n"
             "/session  Show session info\n"
             "/help     Show this help\n"
-            "\nCtrl+C    Interrupt current agent run\n"
-            "Ctrl+C×2  Force quit",
-            title="Commands",
+            "\nShortcuts:\n"
+            "Ctrl+C    Interrupt current agent run\n"
+            "Ctrl+C×2  Force quit\n"
+            "\nAll /commands are handled by the session. "
+            "Type any /command to see if it's available.",
+            title="Help",
             border_style="cyan",
         ))
 
     def _print_welcome(self):
         """Show startup banner."""
-        model = self._session.model_name or "default"
+        provider = getattr(self._session, "provider_name", "")
+        model = getattr(self._session, "model_id", "default")
+        display = f"{provider}/{model}" if provider else model
         self._console.print(Panel(
-            f"Model: {model}",
+            f"Model: {display}",
             title="gen-agent",
             border_style="cyan",
         ))
@@ -156,7 +174,9 @@ class InteractiveApp:
 - `patch_stdout(raw=True)` — prevents Rich.Live and prompt_toolkit from corrupting each other.
 - No custom keyboard shortcuts beyond Ctrl+C (handled by SIGINT handler).
 - **Command routing**: Only `/quit` and `/help` handled locally. All other input (including slash commands like `/model`, `/resume`, `/compact`) delegated to `session.prompt()` which already implements them. This avoids duplicating session-level logic.
-- SIGINT handler: First Ctrl+C cancels `asyncio.Task`, double Ctrl+C (within 1.5s) force-quits.
+- **Slash command responses**: `session.prompt()` returns messages for slash commands. `_run_agent` captures the return value and prints any content, so commands like `/model` provide visible feedback.
+- SIGINT handler: First Ctrl+C cancels `asyncio.Task` via `loop.call_soon_threadsafe()` (signal-safe), double Ctrl+C (within 1.5s) force-quits.
+- **Error handling**: Catches `CancelledError` (interrupt), `SystemExit` (session /quit), and generic `Exception` (provider errors, network failures) to keep the REPL alive.
 - `initial_message` passed to `run()` as parameter, not via private method.
 - History stored at `~/.config/gen-agent/user-history/{cwd_hash}.txt`.
 
@@ -204,18 +224,17 @@ class StreamView:
             case "message_update":
                 self._on_message_update(event)
             case "tool_execution_start":
-                tool = event.tool_execution
-                self._tools[tool.call_id] = ToolStatus(
-                    name=tool.name,
-                    args_summary=_summarize_args(tool.args),
+                # Event attributes are directly on the event object
+                self._tools[event.tool_call_id] = ToolStatus(
+                    name=event.tool_name,
+                    args_summary=_summarize_args(event.args),
                 )
             case "tool_execution_end":
-                tool = event.tool_execution
-                ts = self._tools.get(tool.call_id)
+                ts = self._tools.get(event.tool_call_id)
                 if ts:
-                    ts.status = "error" if tool.is_error else "done"
+                    ts.status = "error" if event.is_error else "done"
                     ts.duration = time.monotonic() - ts.start_time
-                    ts.is_error = tool.is_error
+                    ts.is_error = event.is_error
             case "agent_end":
                 self._working = False
             case "auto_compaction_start":
@@ -356,7 +375,7 @@ __all__ = ["InteractiveApp", "StreamView", "run_interactive_mode"]
 
 ## What Gets Deleted
 
-### Files Deleted (19 of 22)
+### Files Deleted (21 of 22, `__init__.py` rewritten in place)
 
 **Replaced** (code rewritten in new files):
 - `ptk_app.py` (412L) → `app.py`
