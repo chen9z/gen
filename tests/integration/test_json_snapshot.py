@@ -3,10 +3,10 @@ from pathlib import Path
 
 import pytest
 
-from gen_agent.core.agent_session import AgentSession
 from gen_agent.models.content import TextContent
 from gen_agent.models.messages import AssistantMessage
 from gen_agent.modes.json_mode import run_json_mode
+from gen_agent.runtime import SessionRuntime
 
 
 class PlainProvider:
@@ -21,7 +21,7 @@ class PlainProvider:
 
 @pytest.mark.asyncio
 async def test_json_mode_nonzero_on_provider_error(tmp_path: Path):
-    session = AgentSession(
+    session = SessionRuntime(
         cwd=str(tmp_path),
         provider="openai",
         model="gpt-4o-mini",
@@ -35,7 +35,7 @@ async def test_json_mode_nonzero_on_provider_error(tmp_path: Path):
 
 @pytest.mark.asyncio
 async def test_json_event_types_snapshot(tmp_path: Path):
-    session = AgentSession(
+    session = SessionRuntime(
         cwd=str(tmp_path),
         provider="openai",
         model="gpt-4o-mini",
@@ -69,7 +69,7 @@ async def test_json_event_types_snapshot(tmp_path: Path):
 
 @pytest.mark.asyncio
 async def test_assistant_message_update_events_include_text_flow(tmp_path: Path):
-    session = AgentSession(
+    session = SessionRuntime(
         cwd=str(tmp_path),
         provider="openai",
         model="gpt-4o-mini",

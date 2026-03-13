@@ -4,11 +4,11 @@ import threading
 
 import pytest
 
-from gen_agent.core.agent_session import AgentSession
 from gen_agent.extensions import CustomEditorComponent
 from gen_agent.models.content import TextContent
 from gen_agent.models.messages import AssistantMessage
 from gen_agent.modes.rpc_mode import RpcMode
+from gen_agent.runtime import SessionRuntime
 
 
 class PlainProvider:
@@ -59,7 +59,7 @@ class _BlockingStdin:
 
 @pytest.mark.asyncio
 async def test_rpc_get_state_and_prompt(tmp_path):
-    session = AgentSession(
+    session = SessionRuntime(
         cwd=str(tmp_path),
         provider="openai",
         model="gpt-4o-mini",
@@ -86,7 +86,7 @@ async def test_rpc_get_state_and_prompt(tmp_path):
 @pytest.mark.asyncio
 async def test_rpc_extended_commands(tmp_path):
     session_dir = tmp_path / "sessions"
-    session = AgentSession(
+    session = SessionRuntime(
         cwd=str(tmp_path),
         provider="openai",
         model="gpt-4o-mini",
@@ -159,7 +159,7 @@ async def test_rpc_extended_commands(tmp_path):
 
 @pytest.mark.asyncio
 async def test_rpc_steering_queue_modes(tmp_path):
-    session = AgentSession(
+    session = SessionRuntime(
         cwd=str(tmp_path),
         provider="openai",
         model="gpt-4o-mini",
@@ -191,7 +191,7 @@ async def test_rpc_steering_queue_modes(tmp_path):
 
 @pytest.mark.asyncio
 async def test_rpc_follow_up_queue_mode_affects_turn_count(tmp_path):
-    session = AgentSession(
+    session = SessionRuntime(
         cwd=str(tmp_path),
         provider="openai",
         model="gpt-4o-mini",
@@ -223,7 +223,7 @@ async def test_rpc_follow_up_queue_mode_affects_turn_count(tmp_path):
 
 @pytest.mark.asyncio
 async def test_rpc_abort_cancels_inflight_prompt(tmp_path):
-    session = AgentSession(
+    session = SessionRuntime(
         cwd=str(tmp_path),
         provider="openai",
         model="gpt-4o-mini",
@@ -256,7 +256,7 @@ async def test_rpc_abort_cancels_inflight_prompt(tmp_path):
 
 @pytest.mark.asyncio
 async def test_rpc_run_nonblocking_stdin_allows_prompt_response(tmp_path, monkeypatch):
-    session = AgentSession(
+    session = SessionRuntime(
         cwd=str(tmp_path),
         provider="openai",
         model="gpt-4o-mini",
@@ -294,7 +294,7 @@ async def test_rpc_run_nonblocking_stdin_allows_prompt_response(tmp_path, monkey
 
 @pytest.mark.asyncio
 async def test_rpc_extension_ui_round_trip_for_select(tmp_path):
-    session = AgentSession(
+    session = SessionRuntime(
         cwd=str(tmp_path),
         provider="openai",
         model="gpt-4o-mini",
@@ -320,7 +320,7 @@ async def test_rpc_extension_ui_round_trip_for_select(tmp_path):
 
 @pytest.mark.asyncio
 async def test_rpc_extension_ui_fire_and_forget_commands(tmp_path):
-    session = AgentSession(
+    session = SessionRuntime(
         cwd=str(tmp_path),
         provider="openai",
         model="gpt-4o-mini",

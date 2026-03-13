@@ -1,8 +1,8 @@
 import pytest
 
-from gen_agent.core.agent_session import AgentSession
 from gen_agent.models.content import TextContent
 from gen_agent.models.messages import AssistantMessage, UserMessage
+from gen_agent.runtime import SessionRuntime
 
 
 class PlainProvider:
@@ -17,7 +17,7 @@ class PlainProvider:
 
 @pytest.mark.asyncio
 async def test_auto_compaction_trigger(tmp_path):
-    session = AgentSession(
+    session = SessionRuntime(
         cwd=str(tmp_path),
         provider="openai",
         model="gpt-4o-mini",
@@ -40,7 +40,7 @@ async def test_auto_compaction_trigger(tmp_path):
 
 @pytest.mark.asyncio
 async def test_auto_compaction_keeps_recent_budget_anchor(tmp_path):
-    session = AgentSession(
+    session = SessionRuntime(
         cwd=str(tmp_path),
         provider="openai",
         model="gpt-4o-mini",
@@ -67,7 +67,7 @@ async def test_auto_compaction_keeps_recent_budget_anchor(tmp_path):
 
 
 def test_compaction_context_does_not_duplicate_messages(tmp_path):
-    session = AgentSession(
+    session = SessionRuntime(
         cwd=str(tmp_path),
         provider="openai",
         model="gpt-4o-mini",
@@ -77,7 +77,7 @@ def test_compaction_context_does_not_duplicate_messages(tmp_path):
     for i in range(3):
         session.session_manager.append_message(UserMessage(content=f"message {i}"))
 
-    session._handle_manual_compact()
+    session.compact_now()
 
     context = session.session_manager.build_context().messages
     compaction_summaries = [msg for msg in context if msg.role == "compactionSummary"]

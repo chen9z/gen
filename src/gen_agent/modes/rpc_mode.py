@@ -8,41 +8,23 @@ from typing import Any
 import orjson
 from pydantic import TypeAdapter
 
-from gen_agent.core.agent_session import AgentSession
 from gen_agent.extensions import CustomEditorComponent, NoOpExtensionUIContext
+from gen_agent.extensions.ui import CamelCaseUIMixin, normalize_lines as _normalize_lines, normalize_widget_placement
 from gen_agent.models.rpc import RpcCommand, RpcResponse
+from gen_agent.runtime import SessionRuntime
 
 _rpc_adapter = TypeAdapter(RpcCommand)
 
 
-def _normalize_lines(content: Any, *, field_name: str) -> list[str] | None:
-    if content is None:
-        return None
-    if isinstance(content, str):
-        return content.splitlines() or [content]
-    if isinstance(content, list):
-        if not all(isinstance(line, str) for line in content):
-            raise TypeError(f"{field_name} only supports str | list[str] | None")
-        return content
-    raise TypeError(f"{field_name} only supports str | list[str] | None")
-
-
-def _normalize_widget_placement(value: str) -> str:
-    lowered = value.strip().lower()
-    if lowered in {"beloweditor", "below_editor"}:
-        return "belowEditor"
-    return "aboveEditor"
-
-
 def _resolve_widget_placement(value: Any) -> str:
     if isinstance(value, dict):
-        return _normalize_widget_placement(str(value.get("placement", "aboveEditor")))
+        return normalize_widget_placement(str(value.get("placement", "aboveEditor")), camel=True)
     if not isinstance(value, str):
         raise TypeError("widget placement must be a string or {'placement': ...}")
-    return _normalize_widget_placement(str(value))
+    return normalize_widget_placement(str(value), camel=True)
 
 
-class RpcExtensionUIContext:
+class RpcExtensionUIContext(CamelCaseUIMixin):
     def __init__(self, mode: RpcMode):
         self._mode = mode
 
@@ -180,43 +162,9 @@ class RpcExtensionUIContext:
             payload={"component": payload},
         )
 
-    # Compatibility aliases with pi naming.
-    async def selectDialog(self, title: str, options: list[str], timeout: int | None = None) -> str | None:
-        return await self.select(title, options, timeout=timeout)
-
-    async def confirmDialog(self, title: str, message: str, timeout: int | None = None) -> bool:
-        return await self.confirm(title, message, timeout=timeout)
-
-    async def inputDialog(self, title: str, placeholder: str | None = None, timeout: int | None = None) -> str | None:
-        return await self.input(title, placeholder=placeholder, timeout=timeout)
-
-    def setStatus(self, key: str, text: str | None) -> None:
-        self.set_status(key, text)
-
-    def setWidget(self, key: str, content: Any, placement: Any = "aboveEditor") -> None:
-        self.set_widget(key, content, placement=placement)
-
-    def setHeader(self, content: Any) -> None:
-        self.set_header(content)
-
-    def setFooter(self, content: Any) -> None:
-        self.set_footer(content)
-
-    def setTitle(self, title: str) -> None:
-        self.set_title(title)
-
-    def getEditorText(self) -> str:
-        return self.get_editor_text()
-
-    def setEditorText(self, text: str) -> None:
-        self.set_editor_text(text)
-
-    def setEditorComponent(self, component: Any) -> None:
-        self.set_editor_component(component)
-
 
 class RpcMode:
-    def __init__(self, session: AgentSession):
+    def __init__(self, session: SessionRuntime):
         self.session = session
         self._active_operation_task: asyncio.Task[None] | None = None
         self._background_tasks: set[asyncio.Task[None]] = set()
@@ -482,5 +430,5 @@ class RpcMode:
         return 0
 
 
-async def run_rpc_mode(session: AgentSession) -> int:
+async def run_rpc_mode(session: SessionRuntime) -> int:
     return await RpcMode(session).run()

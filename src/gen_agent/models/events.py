@@ -8,28 +8,35 @@ from .content import ModelBase
 from .messages import AgentMessage, ToolResultMessage
 
 
-class AgentStart(ModelBase):
+class EventEnvelope(ModelBase):
+    run_id: str | None = Field(default=None, alias="runId")
+    actor_id: str | None = Field(default=None, alias="actorId")
+    parent_run_id: str | None = Field(default=None, alias="parentRunId")
+    session_id: str | None = Field(default=None, alias="sessionId")
+
+
+class AgentStart(EventEnvelope):
     type: Literal["agent_start"] = "agent_start"
 
 
-class AgentEnd(ModelBase):
+class AgentEnd(EventEnvelope):
     type: Literal["agent_end"] = "agent_end"
     messages: list[AgentMessage]
 
 
-class TurnStart(ModelBase):
+class TurnStart(EventEnvelope):
     type: Literal["turn_start"] = "turn_start"
     turn_number: int = Field(default=0, alias="turnNumber")
     max_turns: int = Field(default=0, alias="maxTurns")
 
 
-class TurnEnd(ModelBase):
+class TurnEnd(EventEnvelope):
     type: Literal["turn_end"] = "turn_end"
     message: AgentMessage
     tool_results: list[ToolResultMessage] = Field(default_factory=list, alias="toolResults")
 
 
-class MessageStart(ModelBase):
+class MessageStart(EventEnvelope):
     type: Literal["message_start"] = "message_start"
     message: AgentMessage
 
@@ -54,25 +61,25 @@ class AssistantMessageEvent(ModelBase):
     error: str | None = None
 
 
-class MessageUpdate(ModelBase):
+class MessageUpdate(EventEnvelope):
     type: Literal["message_update"] = "message_update"
     message: AgentMessage
     assistant_message_event: AssistantMessageEvent = Field(alias="assistantMessageEvent")
 
 
-class MessageEnd(ModelBase):
+class MessageEnd(EventEnvelope):
     type: Literal["message_end"] = "message_end"
     message: AgentMessage
 
 
-class ToolExecutionStart(ModelBase):
+class ToolExecutionStart(EventEnvelope):
     type: Literal["tool_execution_start"] = "tool_execution_start"
     tool_call_id: str = Field(alias="toolCallId")
     tool_name: str = Field(alias="toolName")
     args: dict[str, Any]
 
 
-class ToolExecutionUpdate(ModelBase):
+class ToolExecutionUpdate(EventEnvelope):
     type: Literal["tool_execution_update"] = "tool_execution_update"
     tool_call_id: str = Field(alias="toolCallId")
     tool_name: str = Field(alias="toolName")
@@ -80,7 +87,7 @@ class ToolExecutionUpdate(ModelBase):
     partial_result: Any = Field(alias="partialResult")
 
 
-class ToolExecutionEnd(ModelBase):
+class ToolExecutionEnd(EventEnvelope):
     type: Literal["tool_execution_end"] = "tool_execution_end"
     tool_call_id: str = Field(alias="toolCallId")
     tool_name: str = Field(alias="toolName")
@@ -104,12 +111,12 @@ AgentEvent = Annotated[
 ]
 
 
-class AutoCompactionStart(ModelBase):
+class AutoCompactionStart(EventEnvelope):
     type: Literal["auto_compaction_start"] = "auto_compaction_start"
     reason: Literal["threshold", "overflow"]
 
 
-class AutoCompactionEnd(ModelBase):
+class AutoCompactionEnd(EventEnvelope):
     type: Literal["auto_compaction_end"] = "auto_compaction_end"
     result: dict[str, Any] | None = None
     aborted: bool = False
@@ -117,7 +124,7 @@ class AutoCompactionEnd(ModelBase):
     error_message: str | None = Field(default=None, alias="errorMessage")
 
 
-class AutoRetryStart(ModelBase):
+class AutoRetryStart(EventEnvelope):
     type: Literal["auto_retry_start"] = "auto_retry_start"
     attempt: int
     max_attempts: int = Field(alias="maxAttempts")
@@ -125,7 +132,7 @@ class AutoRetryStart(ModelBase):
     error_message: str = Field(alias="errorMessage")
 
 
-class AutoRetryEnd(ModelBase):
+class AutoRetryEnd(EventEnvelope):
     type: Literal["auto_retry_end"] = "auto_retry_end"
     success: bool
     attempt: int

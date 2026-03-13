@@ -4,9 +4,9 @@ import time
 
 import pytest
 
-from gen_agent.core.agent_session import AgentSession
 from gen_agent.models.content import TextContent
 from gen_agent.models.messages import AssistantMessage, UserMessage
+from gen_agent.runtime import SessionRuntime
 
 
 class PlainProvider:
@@ -21,7 +21,7 @@ class PlainProvider:
 
 @pytest.mark.asyncio
 async def test_compact_tree_and_settings_commands(tmp_path: Path):
-    session = AgentSession(
+    session = SessionRuntime(
         cwd=str(tmp_path),
         provider="openai",
         model="gpt-4o-mini",
@@ -65,7 +65,7 @@ async def test_compact_tree_and_settings_commands(tmp_path: Path):
 @pytest.mark.asyncio
 async def test_fork_resume_and_scoped_models_commands(tmp_path: Path):
     session_dir = tmp_path / "sessions"
-    session = AgentSession(
+    session = SessionRuntime(
         cwd=str(tmp_path),
         provider="openai",
         model="gpt-4o-mini",
@@ -105,7 +105,7 @@ async def test_fork_resume_and_scoped_models_commands(tmp_path: Path):
 @pytest.mark.asyncio
 async def test_resume_restores_model_and_thinking_from_session(tmp_path: Path):
     session_dir = tmp_path / "sessions"
-    base = AgentSession(
+    base = SessionRuntime(
         cwd=str(tmp_path),
         provider="openai",
         model="gpt-4o-mini",
@@ -116,7 +116,7 @@ async def test_resume_restores_model_and_thinking_from_session(tmp_path: Path):
     await base.prompt("/model anthropic/claude-3-5-sonnet-latest:low")
     target_file = base.session_file
 
-    other = AgentSession(
+    other = SessionRuntime(
         cwd=str(tmp_path),
         provider="openai",
         model="gpt-4o-mini",
@@ -158,7 +158,7 @@ async def test_reload_rebuilds_extension_tools(tmp_path: Path):
         encoding="utf-8",
     )
 
-    session = AgentSession(
+    session = SessionRuntime(
         cwd=str(tmp_path),
         provider="openai",
         model="gpt-4o-mini",
@@ -207,7 +207,7 @@ async def test_reload_reports_resource_diagnostics(tmp_path: Path):
     (prompt_a / "dup.md").write_text("---\ndescription: a\n---\nA", encoding="utf-8")
     (prompt_b / "dup.md").write_text("---\ndescription: b\n---\nB", encoding="utf-8")
 
-    session = AgentSession(
+    session = SessionRuntime(
         cwd=str(tmp_path),
         provider="openai",
         model="gpt-4o-mini",
@@ -225,7 +225,7 @@ async def test_reload_reports_resource_diagnostics(tmp_path: Path):
 
 @pytest.mark.asyncio
 async def test_scoped_models_with_thinking_and_unmatched_pattern(tmp_path: Path):
-    session = AgentSession(
+    session = SessionRuntime(
         cwd=str(tmp_path),
         provider="openai",
         model="gpt-4o-mini",
@@ -250,7 +250,7 @@ async def test_scoped_models_with_thinking_and_unmatched_pattern(tmp_path: Path)
 
 @pytest.mark.asyncio
 async def test_scoped_models_invalid_thinking_suffix_warns_and_falls_back(tmp_path: Path):
-    session = AgentSession(
+    session = SessionRuntime(
         cwd=str(tmp_path),
         provider="openai",
         model="gpt-4o-mini",
@@ -282,7 +282,7 @@ async def test_model_command_clamps_thinking_for_non_reasoning_model(tmp_path: P
     )
     monkeypatch.setenv("XDG_CONFIG_HOME", str(xdg))
 
-    session = AgentSession(
+    session = SessionRuntime(
         cwd=str(tmp_path),
         provider="openai",
         model="gpt-4o-mini",
@@ -300,7 +300,7 @@ async def test_cycle_model_prefers_providers_with_auth(tmp_path: Path, monkeypat
     monkeypatch.setenv("HOME", str(tmp_path / "home"))
     monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path / "xdg"))
 
-    session = AgentSession(
+    session = SessionRuntime(
         cwd=str(tmp_path),
         provider="openai",
         model="gpt-4o-mini",
@@ -323,12 +323,15 @@ async def test_extension_event_handlers_receive_agent_events(tmp_path: Path):
             "def register(pi):\n"
             "    def on_agent_start(payload, session):\n"
             "        session._ext_agent_start = payload.get('type')\n"
+            "    def on_agent_end(payload, session):\n"
+            "        session._ext_agent_end_count = getattr(session, '_ext_agent_end_count', 0) + 1\n"
             "    pi.on('agent_start', on_agent_start)\n"
+            "    pi.on('agent_end', on_agent_end)\n"
         ),
         encoding="utf-8",
     )
 
-    session = AgentSession(
+    session = SessionRuntime(
         cwd=str(tmp_path),
         provider="openai",
         model="gpt-4o-mini",
@@ -340,6 +343,7 @@ async def test_extension_event_handlers_receive_agent_events(tmp_path: Path):
 
     await session.prompt("hello")
     assert getattr(session, "_ext_agent_start", None) == "agent_start"
+    assert getattr(session, "_ext_agent_end_count", 0) == 1
 
 
 @pytest.mark.asyncio
@@ -349,13 +353,14 @@ async def test_extension_command_return_value_is_used(tmp_path: Path):
         (
             "def register(pi):\n"
             "    def hello(args, session):\n"
+            "        session._ext_cmd_session_ok = session is not None\n"
             "        return f'hello:{args}'\n"
             "    pi.register_command('hello', hello, 'hello cmd')\n"
         ),
         encoding="utf-8",
     )
 
-    session = AgentSession(
+    session = SessionRuntime(
         cwd=str(tmp_path),
         provider="openai",
         model="gpt-4o-mini",
@@ -367,6 +372,7 @@ async def test_extension_command_return_value_is_used(tmp_path: Path):
 
     resp = await session.prompt("/hello world")
     assert resp[-1].content[0].text == "hello:world"
+    assert getattr(session, "_ext_cmd_session_ok", False) is True
 
 
 @pytest.mark.asyncio
@@ -384,7 +390,7 @@ async def test_extension_command_async_handler_supported(tmp_path: Path):
         encoding="utf-8",
     )
 
-    session = AgentSession(
+    session = SessionRuntime(
         cwd=str(tmp_path),
         provider="openai",
         model="gpt-4o-mini",
@@ -407,7 +413,7 @@ async def test_skill_command_expands_to_user_prompt(tmp_path: Path):
         encoding="utf-8",
     )
 
-    session = AgentSession(
+    session = SessionRuntime(
         cwd=str(tmp_path),
         provider="openai",
         model="gpt-4o-mini",
