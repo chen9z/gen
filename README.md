@@ -42,6 +42,26 @@ Python reimplementation of the `pi` coding agent, built with `Typer` + `Pydantic
 uv run gen --help
 ```
 
+## OpenAI 兼容接口快速启动
+
+项目运行时不会自动读取仓库根目录的 `.env`，需要先由 shell 加载环境变量。
+
+```bash
+cp .env_example .env
+$EDITOR .env
+set -a && source .env && set +a
+uv run gen \
+  --provider "$GEN_PROVIDER" \
+  --model "$GEN_MODEL" \
+  --base-url "$GEN_BASE_URL"
+```
+
+说明：
+
+- `OPENAI_API_KEY` 会被 `openai` provider 自动读取。
+- `GEN_BASE_URL` 用于 OpenAI 兼容接口；如果你直连官方 OpenAI，也可以保留 `https://api.openai.com/v1`。
+- 如果你想之后直接执行 `uv run gen`，把同样的 `baseUrl`/模型配置写入 `~/.config/gen-agent/models.json`。
+
 ## Testing
 
 ```bash

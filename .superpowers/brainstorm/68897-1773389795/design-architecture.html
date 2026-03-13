@@ -1,0 +1,119 @@
+<h2>Design: New Interactive UI Architecture</h2>
+<p class="subtitle">3 files, ~400 lines — Bub-style rewrite with streaming</p>
+
+<div class="section">
+  <h3>File Structure (Before → After)</h3>
+  <div class="split">
+    <div class="mockup">
+      <div class="mockup-header">Before (22 files, 3,394 lines)</div>
+      <div class="mockup-body" style="font-family:monospace; font-size:11px; line-height:1.8;">
+        <div style="color:#e74c3c;">interactive/</div>
+        <div style="padding-left:16px; color:#888;">
+          <div style="text-decoration:line-through;">ptk_app.py (412L)</div>
+          <div style="text-decoration:line-through;">live_view.py (532L)</div>
+          <div style="text-decoration:line-through;">event_processor.py (396L)</div>
+          <div style="text-decoration:line-through;">state_manager.py (187L)</div>
+          <div style="text-decoration:line-through;">render_engine.py (184L)</div>
+          <div style="text-decoration:line-through;">blocks.py (279L)</div>
+          <div style="text-decoration:line-through;">renderers.py (129L)</div>
+          <div style="text-decoration:line-through;">prompt_session.py (117L)</div>
+          <div style="text-decoration:line-through;">completers.py (167L)</div>
+          <div style="text-decoration:line-through;">diff_renderer.py (151L)</div>
+          <div style="text-decoration:line-through;">syntax_highlighter.py (144L)</div>
+          <div style="text-decoration:line-through;">theme.py (75L)</div>
+          <div style="text-decoration:line-through;">keymap.py (71L)</div>
+          <div style="text-decoration:line-through;">shortcuts_dialog.py (71L)</div>
+          <div style="text-decoration:line-through;">history.py (66L)</div>
+          <div style="text-decoration:line-through;">commit_manager.py (58L)</div>
+          <div style="text-decoration:line-through;">pickers.py (57L)</div>
+          <div style="text-decoration:line-through;">tool_key_args.py (67L)</div>
+          <div style="text-decoration:line-through;">layout.py (34L)</div>
+          <div style="text-decoration:line-through;">render.py (129L)</div>
+          <div style="text-decoration:line-through;">data_models.py (40L)</div>
+          <div style="text-decoration:line-through;">__init__.py (28L)</div>
+        </div>
+      </div>
+    </div>
+    <div class="mockup">
+      <div class="mockup-header">After (3 files, ~400 lines)</div>
+      <div class="mockup-body" style="font-family:monospace; font-size:12px; line-height:2.2;">
+        <div style="color:#2ecc71;">interactive/</div>
+        <div style="padding-left:16px;">
+          <div style="color:#fff;">
+            <strong>app.py</strong> <span style="color:#2ecc71;">(~200L)</span>
+            <div style="color:#888; font-size:11px; padding-left:16px;">
+              REPL loop + command dispatch + prompt session<br>
+              (merges ptk_app + prompt_session + keymap + completers)
+            </div>
+          </div>
+          <div style="color:#fff; margin-top:12px;">
+            <strong>stream_view.py</strong> <span style="color:#2ecc71;">(~150L)</span>
+            <div style="color:#888; font-size:11px; padding-left:16px;">
+              Rich.Live streaming + event→display + tool status<br>
+              (merges live_view + event_processor + render_engine + state_manager + commit_manager)
+            </div>
+          </div>
+          <div style="color:#fff; margin-top:12px;">
+            <strong>__init__.py</strong> <span style="color:#2ecc71;">(~50L)</span>
+            <div style="color:#888; font-size:11px; padding-left:16px;">
+              Public API + run_interactive_mode entry point
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="section" style="margin-top:24px;">
+  <h3>Component Responsibility Map</h3>
+  <div style="background:#1a1a2e; padding:20px; border-radius:8px; font-family:monospace; font-size:12px; color:#ccc; line-height:1.8;">
+    <div style="text-align:center; margin-bottom:16px;">
+      <span style="background:#2ecc71; color:#000; padding:4px 12px; border-radius:4px; font-weight:bold;">app.py (~200L)</span>
+    </div>
+    <div style="display:flex; gap:16px; justify-content:center; margin-bottom:8px;">
+      <div style="background:rgba(46,204,113,0.1); border:1px solid #2ecc71; padding:8px 12px; border-radius:4px; font-size:11px;">
+        async REPL loop<br><span style="color:#888;">while True: prompt → run → display</span>
+      </div>
+      <div style="background:rgba(46,204,113,0.1); border:1px solid #2ecc71; padding:8px 12px; border-radius:4px; font-size:11px;">
+        / command dispatch<br><span style="color:#888;">/quit /model /resume /help /session</span>
+      </div>
+      <div style="background:rgba(46,204,113,0.1); border:1px solid #2ecc71; padding:8px 12px; border-radius:4px; font-size:11px;">
+        prompt_toolkit input<br><span style="color:#888;">history + word completer</span>
+      </div>
+    </div>
+    <div style="text-align:center; color:#f39c12; margin:12px 0;">↕ events</div>
+    <div style="text-align:center; margin-bottom:16px;">
+      <span style="background:#3498db; color:#000; padding:4px 12px; border-radius:4px; font-weight:bold;">stream_view.py (~150L)</span>
+    </div>
+    <div style="display:flex; gap:16px; justify-content:center;">
+      <div style="background:rgba(52,152,219,0.1); border:1px solid #3498db; padding:8px 12px; border-radius:4px; font-size:11px;">
+        Rich.Live streaming<br><span style="color:#888;">on_event() → update display</span>
+      </div>
+      <div style="background:rgba(52,152,219,0.1); border:1px solid #3498db; padding:8px 12px; border-radius:4px; font-size:11px;">
+        tool call status<br><span style="color:#888;">spinner → ✓/✗ result</span>
+      </div>
+      <div style="background:rgba(52,152,219,0.1); border:1px solid #3498db; padding:8px 12px; border-radius:4px; font-size:11px;">
+        markdown render<br><span style="color:#888;">Rich.Markdown + Panel</span>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div style="margin-top:24px; padding:16px; background:rgba(255,255,255,0.05); border-radius:8px; border-left:3px solid #2ecc71;">
+  <h3 style="margin:0 0 8px 0; color:#2ecc71;">What Gets Deleted</h3>
+  <div style="display:flex; flex-wrap:wrap; gap:8px; font-size:12px;">
+    <span style="background:rgba(231,76,60,0.2); border:1px solid #e74c3c; padding:2px 8px; border-radius:4px;">Adaptive refresh (render_engine)</span>
+    <span style="background:rgba(231,76,60,0.2); border:1px solid #e74c3c; padding:2px 8px; border-radius:4px;">3-theme system</span>
+    <span style="background:rgba(231,76,60,0.2); border:1px solid #e74c3c; padding:2px 8px; border-radius:4px;">Session/Tree/Model pickers</span>
+    <span style="background:rgba(231,76,60,0.2); border:1px solid #e74c3c; padding:2px 8px; border-radius:4px;">Extension UI bridge</span>
+    <span style="background:rgba(231,76,60,0.2); border:1px solid #e74c3c; padding:2px 8px; border-radius:4px;">Diff renderer</span>
+    <span style="background:rgba(231,76,60,0.2); border:1px solid #e74c3c; padding:2px 8px; border-radius:4px;">Streaming syntax highlighter</span>
+    <span style="background:rgba(231,76,60,0.2); border:1px solid #e74c3c; padding:2px 8px; border-radius:4px;">8 keyboard shortcuts</span>
+    <span style="background:rgba(231,76,60,0.2); border:1px solid #e74c3c; padding:2px 8px; border-radius:4px;">Fuzzy completers (/ and @)</span>
+    <span style="background:rgba(231,76,60,0.2); border:1px solid #e74c3c; padding:2px 8px; border-radius:4px;">Commit manager (scrollback)</span>
+    <span style="background:rgba(231,76,60,0.2); border:1px solid #e74c3c; padding:2px 8px; border-radius:4px;">StateManager (SSoT)</span>
+    <span style="background:rgba(231,76,60,0.2); border:1px solid #e74c3c; padding:2px 8px; border-radius:4px;">Shortcuts help dialog</span>
+    <span style="background:rgba(231,76,60,0.2); border:1px solid #e74c3c; padding:2px 8px; border-radius:4px;">Entry limit buffer</span>
+  </div>
+</div>

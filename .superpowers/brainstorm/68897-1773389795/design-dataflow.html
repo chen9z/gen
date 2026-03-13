@@ -1,0 +1,121 @@
+<h2>Design: Data Flow & Core Interfaces</h2>
+<p class="subtitle">How events flow from user input to screen output</p>
+
+<div class="section">
+  <h3>Event Flow (Simplified)</h3>
+  <div style="background:#1a1a2e; padding:20px; border-radius:8px; font-family:monospace; font-size:12px; color:#ccc; line-height:2;">
+    <div style="display:flex; align-items:center; gap:8px;">
+      <span style="background:#9b59b6; color:#fff; padding:2px 8px; border-radius:4px;">User</span>
+      <span style="color:#888;">types prompt in terminal</span>
+    </div>
+    <div style="color:#f39c12; padding-left:32px;">↓</div>
+    <div style="display:flex; align-items:center; gap:8px; padding-left:16px;">
+      <span style="background:#2ecc71; color:#000; padding:2px 8px; border-radius:4px;">app.py</span>
+      <span style="color:#888;">prompt_async() → check /commands → session.run(prompt)</span>
+    </div>
+    <div style="color:#f39c12; padding-left:32px;">↓ async event stream</div>
+    <div style="display:flex; align-items:center; gap:8px; padding-left:16px;">
+      <span style="background:#3498db; color:#000; padding:2px 8px; border-radius:4px;">stream_view.py</span>
+      <span style="color:#888;">on_event(event) → update Rich.Live display</span>
+    </div>
+    <div style="color:#f39c12; padding-left:32px;">↓</div>
+    <div style="display:flex; align-items:center; gap:8px;">
+      <span style="background:#e74c3c; color:#fff; padding:2px 8px; border-radius:4px;">Terminal</span>
+      <span style="color:#888;">Rich renders Markdown + tool status panels</span>
+    </div>
+  </div>
+</div>
+
+<div class="section" style="margin-top:24px;">
+  <h3>Core Interfaces</h3>
+  <div style="display:flex; gap:16px; flex-wrap:wrap;">
+
+    <div style="flex:1; min-width:300px; background:#1a1a2e; padding:16px; border-radius:8px; border-top:3px solid #2ecc71;">
+      <div style="color:#2ecc71; font-weight:bold; margin-bottom:8px;">app.py — InteractiveApp</div>
+      <pre style="font-size:11px; color:#ccc; margin:0; line-height:1.6;">class InteractiveApp:
+    def __init__(session, console)
+
+    async def run() → int
+        """Main REPL loop."""
+        # 1. show welcome
+        # 2. while True:
+        #      text = prompt_async()
+        #      if text.startswith("/"):
+        #          handle_command(text)
+        #      else:
+        #          run_agent(text)
+
+    async def run_agent(prompt: str)
+        """Run agent, display via stream_view."""
+        view = StreamView(console)
+        view.start()
+        async for event in session.run(prompt):
+            view.on_event(event)
+        view.stop()
+
+    def handle_command(text: str)
+        """/quit /model /resume /help"""</pre>
+    </div>
+
+    <div style="flex:1; min-width:300px; background:#1a1a2e; padding:16px; border-radius:8px; border-top:3px solid #3498db;">
+      <div style="color:#3498db; font-weight:bold; margin-bottom:8px;">stream_view.py — StreamView</div>
+      <pre style="font-size:11px; color:#ccc; margin:0; line-height:1.6;">class StreamView:
+    def __init__(console)
+        self._live = Live(console=console)
+        self._text = ""
+        self._tools: dict[str, ToolStatus] = {}
+        self._working = False
+
+    def start() / stop()
+        """Start/stop Rich.Live context."""
+
+    def on_event(event)
+        """Dispatch table (simplified):
+        agent_start     → _working = True
+        text_delta      → _text += delta
+        tool_exec_start → _tools[id] = running
+        tool_exec_end   → _tools[id] = done
+        agent_end       → _working = False
+        → _refresh()
+        """
+
+    def _refresh()
+        """Build renderable and update Live.
+        Group([
+            Markdown(self._text),
+            *tool_panels,
+            spinner if working
+        ])
+        """</pre>
+    </div>
+  </div>
+</div>
+
+<div class="section" style="margin-top:24px;">
+  <h3>Key Design Decisions</h3>
+  <div style="display:flex; gap:12px; flex-wrap:wrap;">
+    <div style="flex:1; min-width:200px; padding:12px; background:rgba(46,204,113,0.1); border:1px solid #2ecc71; border-radius:8px;">
+      <div style="font-weight:bold; color:#2ecc71; font-size:13px;">No StateManager</div>
+      <div style="color:#bbb; font-size:12px; margin-top:4px;">State lives directly in StreamView as simple instance vars (_text, _tools, _working). No separate state layer needed for ~3 fields.</div>
+    </div>
+    <div style="flex:1; min-width:200px; padding:12px; background:rgba(52,152,219,0.1); border:1px solid #3498db; border-radius:8px;">
+      <div style="font-weight:bold; color:#3498db; font-size:13px;">No Adaptive Refresh</div>
+      <div style="color:#bbb; font-size:12px; margin-top:4px;">Call _refresh() directly after each event. Rich.Live handles rate-limiting internally (refresh_per_second=10).</div>
+    </div>
+    <div style="flex:1; min-width:200px; padding:12px; background:rgba(241,196,15,0.1); border:1px solid #f1c40f; border-radius:8px;">
+      <div style="font-weight:bold; color:#f1c40f; font-size:13px;">Rich.Markdown for Highlight</div>
+      <div style="color:#bbb; font-size:12px; margin-top:4px;">Rich.Markdown already does code block highlighting via Pygments. No need for a custom StreamingSyntaxHighlighter.</div>
+    </div>
+    <div style="flex:1; min-width:200px; padding:12px; background:rgba(155,89,182,0.1); border:1px solid #9b59b6; border-radius:8px;">
+      <div style="font-weight:bold; color:#9b59b6; font-size:13px;">Scrollback via Console.print</div>
+      <div style="color:#bbb; font-size:12px; margin-top:4px;">When agent turn completes, stop Live and print final Markdown to console (scrollback). No CommitManager needed.</div>
+    </div>
+  </div>
+</div>
+
+<div style="margin-top:24px; padding:16px; background:rgba(255,255,255,0.05); border-radius:8px; border-left:3px solid #3498db;">
+  <h3 style="margin:0 0 8px 0; color:#3498db;">Extension UI Stub</h3>
+  <p style="margin:0; color:#bbb; font-size:13px;">
+    The existing <code>extensions/ui.py</code> defines a no-op UI protocol. Since we're removing the Extension UI bridge, the no-op implementation stays as-is — extensions just get silent no-ops. No adapter code needed.
+  </p>
+</div>

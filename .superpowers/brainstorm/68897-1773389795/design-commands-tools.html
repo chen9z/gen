@@ -1,0 +1,126 @@
+<h2>Design: Commands & Tool Display</h2>
+<p class="subtitle">Slash commands and tool call rendering</p>
+
+<div class="section">
+  <h3>Slash Commands (Before → After)</h3>
+  <div class="split">
+    <div class="mockup">
+      <div class="mockup-header">Before: Complex Command System</div>
+      <div class="mockup-body" style="font-size:12px; line-height:1.8;">
+        <div style="font-family:monospace; color:#ccc;">
+          <div>/quit <span style="color:#888;">— exit</span></div>
+          <div>/model <span style="color:#888;">— switch model (also Ctrl+L picker)</span></div>
+          <div>/session <span style="color:#888;">— show session info</span></div>
+          <div>/resume <span style="color:#888;">— restore session (also Ctrl+R picker)</span></div>
+          <div>/tree <span style="color:#888;">— tree navigation (also Ctrl+T picker)</span></div>
+          <div>/compact <span style="color:#888;">— manual compaction (also Ctrl+K)</span></div>
+          <div>/help <span style="color:#888;">— help text</span></div>
+          <div>/status <span style="color:#888;">— status detail (also Ctrl+Y)</span></div>
+          <div style="color:#888; margin-top:8px;">+ extension commands via pool</div>
+          <div style="color:#888;">+ fuzzy matching via FuzzyCompleter</div>
+          <div style="color:#888;">+ @ path completion</div>
+        </div>
+      </div>
+    </div>
+    <div class="mockup">
+      <div class="mockup-header">After: Minimal Commands</div>
+      <div class="mockup-body" style="font-size:12px; line-height:1.8;">
+        <div style="font-family:monospace; color:#ccc;">
+          <div style="color:#2ecc71;">/quit</div>
+          <div style="color:#888; padding-left:16px; font-size:11px;">Exit the session</div>
+          <div style="color:#2ecc71; margin-top:4px;">/model [name]</div>
+          <div style="color:#888; padding-left:16px; font-size:11px;">Switch model (list if no arg)</div>
+          <div style="color:#2ecc71; margin-top:4px;">/resume [id]</div>
+          <div style="color:#888; padding-left:16px; font-size:11px;">Resume session (list if no arg)</div>
+          <div style="color:#2ecc71; margin-top:4px;">/help</div>
+          <div style="color:#888; padding-left:16px; font-size:11px;">Show available commands</div>
+          <div style="color:#2ecc71; margin-top:4px;">/compact</div>
+          <div style="color:#888; padding-left:16px; font-size:11px;">Manually trigger compaction</div>
+        </div>
+        <div style="margin-top:12px; padding:8px; background:rgba(46,204,113,0.1); border-radius:4px; font-size:11px; color:#2ecc71;">
+          5 commands total. Simple WordCompleter on /.<br>
+          No pickers. No @ path. No extension commands.
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="section" style="margin-top:24px;">
+  <h3>Tool Call Display</h3>
+  <p style="color:#bbb; font-size:13px;">The key feature to preserve — showing tool execution progress during agent runs.</p>
+
+  <div class="mockup" style="margin-top:12px;">
+    <div class="mockup-header">Tool Call Rendering in StreamView</div>
+    <div class="mockup-body" style="font-family:monospace; font-size:12px; line-height:1.6; background:#0d1117; padding:16px;">
+      <div style="color:#ccc;">
+        <div style="color:#58a6ff;">Assistant:</div>
+        <div style="margin-left:8px;">Let me read the file and check the function.</div>
+      </div>
+      <div style="margin-top:8px; padding:8px; border-left:3px solid #f39c12; background:rgba(243,156,18,0.1);">
+        <span style="color:#f39c12;">⠋</span>
+        <span style="color:#f39c12; font-weight:bold;">read_file</span>
+        <span style="color:#666;"> src/main.py</span>
+        <span style="color:#666; font-size:11px; float:right;">running...</span>
+      </div>
+      <div style="margin-top:4px; padding:8px; border-left:3px solid #2ecc71; background:rgba(46,204,113,0.1);">
+        <span style="color:#2ecc71;">✓</span>
+        <span style="color:#2ecc71; font-weight:bold;">edit_file</span>
+        <span style="color:#666;"> src/utils.py</span>
+        <span style="color:#666; font-size:11px; float:right;">0.3s</span>
+      </div>
+      <div style="margin-top:4px; padding:8px; border-left:3px solid #e74c3c; background:rgba(231,76,60,0.1);">
+        <span style="color:#e74c3c;">✗</span>
+        <span style="color:#e74c3c; font-weight:bold;">bash</span>
+        <span style="color:#666;"> pytest tests/</span>
+        <span style="color:#666; font-size:11px; float:right;">1.2s</span>
+      </div>
+    </div>
+  </div>
+
+  <div style="margin-top:12px; padding:12px; background:rgba(52,152,219,0.1); border:1px solid #3498db; border-radius:8px; font-size:12px; color:#bbb;">
+    <strong style="color:#3498db;">Implementation:</strong> Each tool call is a simple dataclass with <code>name</code>, <code>args_summary</code>, <code>status</code> (running/done/error), <code>duration</code>. Rendered as Rich.Text with colored prefix. No diff view, no expandable details, no toggle shortcuts.
+  </div>
+</div>
+
+<div class="section" style="margin-top:24px;">
+  <h3>Removed Interactions Summary</h3>
+  <div style="display:grid; grid-template-columns:1fr 1fr; gap:8px; font-size:12px;">
+    <div style="padding:8px; background:rgba(231,76,60,0.1); border-radius:4px;">
+      <span style="color:#e74c3c;">✗</span> Ctrl+R session picker dialog
+    </div>
+    <div style="padding:8px; background:rgba(231,76,60,0.1); border-radius:4px;">
+      <span style="color:#e74c3c;">✗</span> Ctrl+T tree navigation picker
+    </div>
+    <div style="padding:8px; background:rgba(231,76,60,0.1); border-radius:4px;">
+      <span style="color:#e74c3c;">✗</span> Ctrl+L/P model cycle picker
+    </div>
+    <div style="padding:8px; background:rgba(231,76,60,0.1); border-radius:4px;">
+      <span style="color:#e74c3c;">✗</span> Ctrl+Y status detail toggle
+    </div>
+    <div style="padding:8px; background:rgba(231,76,60,0.1); border-radius:4px;">
+      <span style="color:#e74c3c;">✗</span> Ctrl+D tool detail expand
+    </div>
+    <div style="padding:8px; background:rgba(231,76,60,0.1); border-radius:4px;">
+      <span style="color:#e74c3c;">✗</span> Ctrl+K compact shortcut
+    </div>
+    <div style="padding:8px; background:rgba(231,76,60,0.1); border-radius:4px;">
+      <span style="color:#e74c3c;">✗</span> @ path fuzzy completion
+    </div>
+    <div style="padding:8px; background:rgba(231,76,60,0.1); border-radius:4px;">
+      <span style="color:#e74c3c;">✗</span> Extension UI dialogs/widgets
+    </div>
+    <div style="padding:8px; background:rgba(231,76,60,0.1); border-radius:4px;">
+      <span style="color:#e74c3c;">✗</span> Diff side-by-side view
+    </div>
+    <div style="padding:8px; background:rgba(231,76,60,0.1); border-radius:4px;">
+      <span style="color:#e74c3c;">✗</span> Shortcuts help dialog
+    </div>
+    <div style="padding:8px; background:rgba(231,76,60,0.1); border-radius:4px;">
+      <span style="color:#e74c3c;">✗</span> Theme switching (3 presets)
+    </div>
+    <div style="padding:8px; background:rgba(231,76,60,0.1); border-radius:4px;">
+      <span style="color:#e74c3c;">✗</span> Custom editor components
+    </div>
+  </div>
+</div>

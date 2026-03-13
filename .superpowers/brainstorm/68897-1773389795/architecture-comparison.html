@@ -1,0 +1,92 @@
+<h2>Gen vs Bub: Interactive UI Architecture</h2>
+<p class="subtitle">Side-by-side comparison of complexity and design approach</p>
+
+<div class="split">
+  <div class="mockup">
+    <div class="mockup-header">Gen Project (Current)</div>
+    <div class="mockup-body" style="font-size:13px; line-height:1.6;">
+      <div style="text-align:center; margin-bottom:12px;">
+        <span style="font-size:28px; font-weight:bold; color:#e74c3c;">22 files</span>
+        <span style="color:#888; margin:0 8px;">|</span>
+        <span style="font-size:28px; font-weight:bold; color:#e74c3c;">3,394 lines</span>
+      </div>
+      <div style="background:#1a1a2e; padding:12px; border-radius:8px; color:#ccc; font-family:monospace; font-size:11px;">
+        <div style="color:#e74c3c;">interactive/</div>
+        <div style="padding-left:16px;">
+          <div>ptk_app.py <span style="color:#888;">(412L) - App Controller</span></div>
+          <div>live_view.py <span style="color:#888;">(532L) - Live Render</span></div>
+          <div>event_processor.py <span style="color:#888;">(396L) - Event Dispatch</span></div>
+          <div>state_manager.py <span style="color:#888;">(187L) - State</span></div>
+          <div>render_engine.py <span style="color:#888;">(184L) - Render Loop</span></div>
+          <div>blocks.py <span style="color:#888;">(279L) - Data Blocks</span></div>
+          <div>renderers.py <span style="color:#888;">(129L) - Renderers</span></div>
+          <div>prompt_session.py <span style="color:#888;">(117L) - Input</span></div>
+          <div>completers.py <span style="color:#888;">(167L) - Completers</span></div>
+          <div>diff_renderer.py <span style="color:#888;">(151L) - Diff View</span></div>
+          <div>syntax_highlighter.py <span style="color:#888;">(144L) - Highlight</span></div>
+          <div>theme.py <span style="color:#888;">(75L) - 3 Themes</span></div>
+          <div>keymap.py <span style="color:#888;">(71L) - 8 Shortcuts</span></div>
+          <div>+ 9 more files...</div>
+        </div>
+      </div>
+      <div style="margin-top:12px;">
+        <div class="label">Key Features</div>
+        <ul style="margin:4px 0; padding-left:20px; color:#bbb; font-size:12px;">
+          <li>Adaptive refresh rate (5-20Hz)</li>
+          <li>Streaming syntax highlighting</li>
+          <li>Session picker / Tree picker / Model picker</li>
+          <li>Diff renderer (side-by-side)</li>
+          <li>Extension UI bridge (dialogs, widgets, etc.)</li>
+          <li>8 keyboard shortcuts (Ctrl+R/T/L/P/N/K/Y/D)</li>
+          <li>3 theme presets</li>
+          <li>Entry limit buffer (240 entries)</li>
+        </ul>
+      </div>
+    </div>
+  </div>
+
+  <div class="mockup">
+    <div class="mockup-header">Bub Project (Reference)</div>
+    <div class="mockup-body" style="font-size:13px; line-height:1.6;">
+      <div style="text-align:center; margin-bottom:12px;">
+        <span style="font-size:28px; font-weight:bold; color:#2ecc71;">4 files</span>
+        <span style="color:#888; margin:0 8px;">|</span>
+        <span style="font-size:28px; font-weight:bold; color:#2ecc71;">428 lines</span>
+      </div>
+      <div style="background:#1a1a2e; padding:12px; border-radius:8px; color:#ccc; font-family:monospace; font-size:11px;">
+        <div style="color:#2ecc71;">channels/cli/</div>
+        <div style="padding-left:16px;">
+          <div>__init__.py <span style="color:#888;">(174L) - Channel + REPL</span></div>
+          <div>renderer.py <span style="color:#888;">(46L) - Rich Renderer</span></div>
+        </div>
+        <div style="color:#2ecc71; margin-top:8px;">channels/</div>
+        <div style="padding-left:16px;">
+          <div>manager.py <span style="color:#888;">(137L) - Channel Manager</span></div>
+          <div>handler.py <span style="color:#888;">(71L) - Message Handler</span></div>
+        </div>
+      </div>
+      <div style="margin-top:12px;">
+        <div class="label">Key Features</div>
+        <ul style="margin:4px 0; padding-left:20px; color:#bbb; font-size:12px;">
+          <li>Simple async REPL loop</li>
+          <li>Color-coded panel output (blue/green/red)</li>
+          <li>Word autocomplete for tools</li>
+          <li>File-based history</li>
+          <li>Agent/Shell mode toggle (Ctrl+X)</li>
+          <li>Welcome panel + status toolbar</li>
+          <li>Framework handles session/state</li>
+          <li style="color:#2ecc71; font-weight:bold;">That's it. Nothing more.</li>
+        </ul>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div style="margin-top:24px; padding:16px; background:rgba(255,255,255,0.05); border-radius:8px; border-left:3px solid #f39c12;">
+  <h3 style="margin:0 0 8px 0; color:#f39c12;">Complexity Ratio: 8x</h3>
+  <p style="margin:0; color:#bbb; font-size:13px;">
+    Gen's interactive UI is <strong>8 times larger</strong> than Bub's. The extra complexity comes from:
+    streaming syntax highlighting, adaptive render engine, multi-picker system, extension UI bridge,
+    diff renderer, and 3-layer state management (StateManager + RenderEngine + CommitManager).
+  </p>
+</div>

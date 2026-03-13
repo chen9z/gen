@@ -6,8 +6,13 @@
 # 确保在项目根目录
 cd /Users/chen/workspace/gen
 
+# 首次使用 OpenAI / OpenAI 兼容接口
+cp .env_example .env
+$EDITOR .env
+set -a && source .env && set +a
+
 # 启动 interactive 模式
-uv run gen
+uv run gen --provider "$GEN_PROVIDER" --model "$GEN_MODEL" --base-url "$GEN_BASE_URL"
 ```
 
 ## Phase 1 & 2 功能测试
