@@ -46,11 +46,12 @@ class StreamView:
     def __init__(self, console: Console) -> None:
         self._console = console
         self._live = Live(console=console, refresh_per_second=10, transient=True)
-        self._text_parts: list[str] = []
+        self._tail_parts: list[str] = []
         self._tools: dict[str, ToolStatus] = {}
         self._working = False
         self._error: str | None = None
         self._notice: str | None = None
+        self._committed_text: bool = False
 
     def start(self) -> None:
         self._live.start()
@@ -62,10 +63,11 @@ class StreamView:
         """Dispatch event to update state, then refresh."""
         if isinstance(event, AgentStart):
             self._working = True
-            self._text_parts.clear()
+            self._tail_parts.clear()
             self._tools.clear()
             self._error = None
             self._notice = None
+            self._committed_text = False
         elif isinstance(event, MessageUpdate):
             self._on_message_update(event)
         elif isinstance(event, ToolExecutionStart):
@@ -74,11 +76,12 @@ class StreamView:
                 args_summary=_summarize_args(event.args),
             )
         elif isinstance(event, ToolExecutionEnd):
-            ts = self._tools.get(event.tool_call_id)
+            ts = self._tools.pop(event.tool_call_id, None)
             if ts:
                 ts.status = "error" if event.is_error else "done"
                 ts.duration = time.monotonic() - ts.start_time
                 ts.is_error = event.is_error
+                self._console.print(self._render_tool(ts))
         elif isinstance(event, AgentEnd):
             self._working = False
         elif isinstance(event, AutoCompactionStart):
@@ -92,17 +95,27 @@ class StreamView:
         self._refresh()
 
     def _on_message_update(self, event: MessageUpdate) -> None:
-        """Handle streaming text deltas."""
+        """Handle streaming text deltas and commit on text_end."""
         msg = event.assistant_message_event
         if msg.type == "text_delta" and msg.delta:
-            self._text_parts.append(msg.delta)
+            self._tail_parts.append(msg.delta)
+        elif msg.type == "text_end":
+            self._commit_text()
         elif msg.type == "error" and msg.error:
             self._error = msg.error
 
+    def _commit_text(self) -> None:
+        """Commit accumulated text to console scrollback."""
+        text = "".join(self._tail_parts)
+        self._tail_parts.clear()
+        if text:
+            self._console.print(Markdown(text))
+            self._committed_text = True
+
     def _refresh(self) -> None:
-        """Build renderable group and update Live."""
+        """Build renderable group and update Live (tail only)."""
         parts: list[Any] = []
-        text = "".join(self._text_parts)
+        text = "".join(self._tail_parts)
         if text:
             parts.append(Markdown(text))
         for ts in self._tools.values():
@@ -127,8 +140,8 @@ class StreamView:
         )
 
     def print_final(self, console: Console) -> None:
-        """Print completed output to scrollback (Live was transient)."""
-        text = "".join(self._text_parts)
+        """Print uncommitted tail residue (e.g. interrupted stream)."""
+        text = "".join(self._tail_parts)
         if text:
             console.print(Markdown(text))
         for ts in self._tools.values():

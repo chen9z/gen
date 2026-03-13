@@ -1,6 +1,8 @@
 # tests/unit/test_stream_view.py
 from __future__ import annotations
 
+from io import StringIO
+
 from rich.console import Console
 from rich.text import Text
 
@@ -46,16 +48,16 @@ class _FakeLive:
         self.updates.append(renderable)
 
 
-def _make_view() -> tuple[StreamView, _FakeLive]:
-    console = Console(file=None, force_terminal=True)
+def _make_view() -> tuple[StreamView, _FakeLive, Console]:
+    console = Console(file=StringIO(), force_terminal=True, record=True)
     view = StreamView(console)
     fake = _FakeLive()
     view._live = fake
-    return view, fake
+    return view, fake, console
 
 
 def test_stream_view_start_stop():
-    view, fake = _make_view()
+    view, fake, _ = _make_view()
     view.start()
     assert fake.started
     view.stop()
@@ -63,7 +65,7 @@ def test_stream_view_start_stop():
 
 
 def test_stream_view_text_delta_accumulates():
-    view, fake = _make_view()
+    view, fake, _ = _make_view()
     msg = _assistant_message()
 
     view.on_event(AgentStart())
@@ -76,12 +78,12 @@ def test_stream_view_text_delta_accumulates():
         assistantMessageEvent=AssistantMessageEvent(type="text_delta", delta="world"),
     ))
 
-    assert "".join(view._text_parts) == "hello world"
+    assert "".join(view._tail_parts) == "hello world"
     assert len(fake.updates) >= 2
 
 
 def test_stream_view_tool_execution_lifecycle():
-    view, _ = _make_view()
+    view, _, _ = _make_view()
 
     view.on_event(AgentStart())
     view.on_event(ToolExecutionStart(
@@ -101,13 +103,11 @@ def test_stream_view_tool_execution_lifecycle():
         isError=False,
     ))
 
-    assert view._tools["tc1"].status == "done"
-    assert view._tools["tc1"].duration > 0
-    assert view._tools["tc1"].is_error is False
+    assert "tc1" not in view._tools
 
 
 def test_stream_view_tool_error():
-    view, _ = _make_view()
+    view, _, _ = _make_view()
     view.on_event(AgentStart())
     view.on_event(ToolExecutionStart(
         toolCallId="tc2",
@@ -122,24 +122,23 @@ def test_stream_view_tool_error():
         errorDetail="command failed",
     ))
 
-    assert view._tools["tc2"].status == "error"
-    assert view._tools["tc2"].is_error is True
+    assert "tc2" not in view._tools
 
 
 def test_stream_view_agent_start_clears_state():
-    view, _ = _make_view()
-    view._text_parts = ["old text"]
+    view, _, _ = _make_view()
+    view._tail_parts = ["old text"]
     view._tools["old"] = ToolStatus(name="old_tool")
 
     view.on_event(AgentStart())
 
-    assert view._text_parts == []
+    assert view._tail_parts == []
     assert view._tools == {}
     assert view._working is True
 
 
 def test_stream_view_agent_end_stops_working():
-    view, _ = _make_view()
+    view, _, _ = _make_view()
     view.on_event(AgentStart())
     assert view._working is True
 
@@ -148,7 +147,7 @@ def test_stream_view_agent_end_stops_working():
 
 
 def test_stream_view_compaction_notice():
-    view, _ = _make_view()
+    view, _, _ = _make_view()
     view.on_event(AutoCompactionStart(reason="threshold"))
     assert view._notice == "Compacting context..."
 
@@ -157,7 +156,7 @@ def test_stream_view_compaction_notice():
 
 
 def test_stream_view_error_event():
-    view, _ = _make_view()
+    view, _, _ = _make_view()
     msg = _assistant_message()
     view.on_event(MessageUpdate(
         message=msg,
@@ -166,22 +165,25 @@ def test_stream_view_error_event():
     assert view._error == "rate limit"
 
 
-def test_stream_view_print_final(capsys):
-    console = Console(force_terminal=False, no_color=True)
+def test_stream_view_print_final():
+    """print_final only prints uncommitted tail residue."""
+    out = StringIO()
+    console = Console(file=out, force_terminal=False, no_color=True)
     view = StreamView(console)
-    view._text_parts = ["Hello **world**"]
+    view._live = _FakeLive()
+    view._tail_parts = ["Hello **world**"]
     view._tools["t1"] = ToolStatus(
-        name="bash", args_summary="ls", status="done", duration=0.5,
+        name="bash", args_summary="ls", status="running",
     )
 
     view.print_final(console)
-    captured = capsys.readouterr()
-    assert "world" in captured.out
-    assert "bash" in captured.out
+    output = out.getvalue()
+    assert "world" in output
+    assert "bash" in output
 
 
 def test_render_tool_running():
-    view, _ = _make_view()
+    view, _, _ = _make_view()
     ts = ToolStatus(name="read_file", args_summary="main.py")
     result = view._render_tool(ts)
     assert isinstance(result, Text)
@@ -189,7 +191,7 @@ def test_render_tool_running():
 
 
 def test_render_tool_done():
-    view, _ = _make_view()
+    view, _, _ = _make_view()
     ts = ToolStatus(name="bash", args_summary="ls", status="done", duration=1.2)
     result = view._render_tool(ts)
     text = str(result)
@@ -198,7 +200,7 @@ def test_render_tool_done():
 
 
 def test_render_tool_error():
-    view, _ = _make_view()
+    view, _, _ = _make_view()
     ts = ToolStatus(name="bash", args_summary="ls", status="error", is_error=True, duration=0.5)
     result = view._render_tool(ts)
     text = str(result)
@@ -225,3 +227,103 @@ def test_summarize_args_empty():
 
 def test_summarize_args_fallback_string():
     assert _summarize_args({"count": 5, "label": "hello"}) == "hello"
+
+
+# --- New semantic commit tests ---
+
+
+def test_commit_text_on_text_end():
+    """text_end commits accumulated text to console scrollback."""
+    view, _, console = _make_view()
+    msg = _assistant_message()
+
+    view.on_event(AgentStart())
+    view.on_event(MessageUpdate(
+        message=msg,
+        assistantMessageEvent=AssistantMessageEvent(type="text_delta", delta="Hello "),
+    ))
+    view.on_event(MessageUpdate(
+        message=msg,
+        assistantMessageEvent=AssistantMessageEvent(type="text_delta", delta="world"),
+    ))
+    view.on_event(MessageUpdate(
+        message=msg,
+        assistantMessageEvent=AssistantMessageEvent(type="text_end"),
+    ))
+
+    assert view._tail_parts == []
+    assert view._committed_text is True
+    output = console.export_text()
+    assert "Hello" in output
+    assert "world" in output
+
+
+def test_tool_committed_on_execution_end():
+    """Completed tool is popped from _tools and committed to console."""
+    view, _, console = _make_view()
+
+    view.on_event(AgentStart())
+    view.on_event(ToolExecutionStart(
+        toolCallId="tc1",
+        toolName="read_file",
+        args={"path": "foo.py"},
+    ))
+    view.on_event(ToolExecutionEnd(
+        toolCallId="tc1",
+        toolName="read_file",
+        result="ok",
+        isError=False,
+    ))
+
+    assert "tc1" not in view._tools
+    output = console.export_text()
+    assert "read_file" in output
+
+
+def test_multiple_text_blocks():
+    """Each text_start→delta→text_end cycle commits independently."""
+    view, _, console = _make_view()
+    msg = _assistant_message()
+
+    view.on_event(AgentStart())
+
+    # Block 1
+    view.on_event(MessageUpdate(
+        message=msg,
+        assistantMessageEvent=AssistantMessageEvent(type="text_delta", delta="Block one"),
+    ))
+    view.on_event(MessageUpdate(
+        message=msg,
+        assistantMessageEvent=AssistantMessageEvent(type="text_end"),
+    ))
+    assert view._tail_parts == []
+
+    # Block 2
+    view.on_event(MessageUpdate(
+        message=msg,
+        assistantMessageEvent=AssistantMessageEvent(type="text_delta", delta="Block two"),
+    ))
+    view.on_event(MessageUpdate(
+        message=msg,
+        assistantMessageEvent=AssistantMessageEvent(type="text_end"),
+    ))
+    assert view._tail_parts == []
+
+    output = console.export_text()
+    assert "Block one" in output
+    assert "Block two" in output
+
+
+def test_empty_text_block_skipped():
+    """text_end with no prior delta does not commit anything."""
+    view, _, console = _make_view()
+    msg = _assistant_message()
+
+    view.on_event(AgentStart())
+    view.on_event(MessageUpdate(
+        message=msg,
+        assistantMessageEvent=AssistantMessageEvent(type="text_end"),
+    ))
+
+    assert view._committed_text is False
+    assert console.export_text().strip() == ""
