@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import sys
+from typing import Any
 
 from rich.console import Console
 
@@ -11,7 +12,7 @@ from .stream_view import StreamView
 
 
 async def run_interactive_mode(
-    session: object,
+    session: Any,
     initial_message: str | None = None,
 ) -> int:
     """Entry point for interactive mode.
