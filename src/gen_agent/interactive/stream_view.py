@@ -15,7 +15,17 @@ from rich.markdown import Markdown
 from rich.spinner import Spinner
 from rich.text import Text
 
-from gen_agent.models.events import AgentSessionEvent
+from gen_agent.models.events import (
+    AgentEnd,
+    AgentStart,
+    AutoCompactionEnd,
+    AutoCompactionStart,
+    AutoRetryEnd,
+    AutoRetryStart,
+    MessageUpdate,
+    ToolExecutionEnd,
+    ToolExecutionStart,
+)
 
 
 @dataclass
@@ -48,41 +58,40 @@ class StreamView:
     def stop(self) -> None:
         self._live.stop()
 
-    def on_event(self, event: AgentSessionEvent) -> None:
+    def on_event(self, event: Any) -> None:
         """Dispatch event to update state, then refresh."""
-        etype = event.type
-        if etype == "agent_start":
+        if isinstance(event, AgentStart):
             self._working = True
             self._text_parts.clear()
             self._tools.clear()
             self._error = None
             self._notice = None
-        elif etype == "message_update":
+        elif isinstance(event, MessageUpdate):
             self._on_message_update(event)
-        elif etype == "tool_execution_start":
+        elif isinstance(event, ToolExecutionStart):
             self._tools[event.tool_call_id] = ToolStatus(
                 name=event.tool_name,
                 args_summary=_summarize_args(event.args),
             )
-        elif etype == "tool_execution_end":
+        elif isinstance(event, ToolExecutionEnd):
             ts = self._tools.get(event.tool_call_id)
             if ts:
                 ts.status = "error" if event.is_error else "done"
                 ts.duration = time.monotonic() - ts.start_time
                 ts.is_error = event.is_error
-        elif etype == "agent_end":
+        elif isinstance(event, AgentEnd):
             self._working = False
-        elif etype == "auto_compaction_start":
+        elif isinstance(event, AutoCompactionStart):
             self._notice = "Compacting context..."
-        elif etype == "auto_compaction_end":
+        elif isinstance(event, AutoCompactionEnd):
             self._notice = None
-        elif etype == "auto_retry_start":
+        elif isinstance(event, AutoRetryStart):
             self._notice = "Retrying..."
-        elif etype == "auto_retry_end":
+        elif isinstance(event, AutoRetryEnd):
             self._notice = None
         self._refresh()
 
-    def _on_message_update(self, event: AgentSessionEvent) -> None:
+    def _on_message_update(self, event: MessageUpdate) -> None:
         """Handle streaming text deltas."""
         msg = event.assistant_message_event
         if msg.type == "text_delta" and msg.delta:

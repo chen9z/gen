@@ -1,9 +1,6 @@
 # tests/unit/test_stream_view.py
 from __future__ import annotations
 
-import time
-
-import pytest
 from rich.console import Console
 from rich.text import Text
 
@@ -27,7 +24,7 @@ def _assistant_message(text: str = "") -> AssistantMessage:
         provider="openai",
         model="gpt-4o-mini",
         content=[TextContent(text=text)] if text else [],
-        stop_reason="stop",
+        stopReason="stop",
     )
 
 
