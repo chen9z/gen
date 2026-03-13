@@ -13,20 +13,13 @@ from gen_agent.tools.base import Tool
 from .base import ProviderRequest
 from .stream_types import (
     build_usage,
+    coerce_usage_int,
+    complete_from_stream,
     ProviderAssistantEvent,
     ProviderFinalEvent,
     ProviderStreamEvent,
     StreamUsage,
 )
-
-
-def _coerce_usage_int(value: Any) -> int:
-    if value is None:
-        return 0
-    try:
-        return int(value)
-    except (TypeError, ValueError):
-        return 0
 
 
 def _to_anthropic_messages(messages: list[AgentMessage]) -> list[dict[str, Any]]:
@@ -186,10 +179,10 @@ class AnthropicProvider:
             final = await stream.get_final_message()
 
         usage_raw = getattr(final, "usage", None)
-        input_tokens = _coerce_usage_int(getattr(usage_raw, "input_tokens", 0) if usage_raw else 0)
-        output_tokens = _coerce_usage_int(getattr(usage_raw, "output_tokens", 0) if usage_raw else 0)
-        cache_read_tokens = _coerce_usage_int(getattr(usage_raw, "cache_read_input_tokens", 0) if usage_raw else 0)
-        cache_write_tokens = _coerce_usage_int(getattr(usage_raw, "cache_creation_input_tokens", 0) if usage_raw else 0)
+        input_tokens = coerce_usage_int(getattr(usage_raw, "input_tokens", 0) if usage_raw else 0)
+        output_tokens = coerce_usage_int(getattr(usage_raw, "output_tokens", 0) if usage_raw else 0)
+        cache_read_tokens = coerce_usage_int(getattr(usage_raw, "cache_read_input_tokens", 0) if usage_raw else 0)
+        cache_write_tokens = coerce_usage_int(getattr(usage_raw, "cache_creation_input_tokens", 0) if usage_raw else 0)
         usage = StreamUsage(
             input=input_tokens,
             output=output_tokens,
@@ -230,10 +223,4 @@ class AnthropicProvider:
         yield ProviderFinalEvent(message=message)
 
     async def complete(self, request: ProviderRequest) -> AssistantMessage:
-        final_message: AssistantMessage | None = None
-        async for item in self.stream_complete(request):
-            if item.type == "final":
-                final_message = item.message
-        if final_message is None:
-            raise RuntimeError("Anthropic stream ended without final message")
-        return final_message
+        return await complete_from_stream(self.stream_complete(request), "Anthropic")

@@ -18,6 +18,7 @@ from .stream_types import (
     ProviderStreamEvent,
     StreamUsage,
     build_usage,
+    complete_from_stream,
 )
 
 
@@ -254,10 +255,4 @@ class OpenAIProvider:
         yield ProviderFinalEvent(message=message)
 
     async def complete(self, request: ProviderRequest) -> AssistantMessage:
-        final_message: AssistantMessage | None = None
-        async for item in self.stream_complete(request):
-            if item.type == "final":
-                final_message = item.message
-        if final_message is None:
-            raise RuntimeError("OpenAI stream ended without final message")
-        return final_message
+        return await complete_from_stream(self.stream_complete(request), "OpenAI")

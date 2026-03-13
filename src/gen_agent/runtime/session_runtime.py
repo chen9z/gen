@@ -5,6 +5,7 @@ from pathlib import Path
 from typing import Any
 
 from gen_agent.core.auth_store import AuthStore
+from gen_agent.core.compaction import generate_compaction_summary
 from gen_agent.core.model_registry import ModelRegistry
 from gen_agent.core.session_manager import SessionManager
 from gen_agent.core.settings_store import load_settings
@@ -30,7 +31,6 @@ from .model_controller import ModelController
 from .prompt_pipeline import PromptPipeline
 from .provider_runtime import ProviderRuntime
 from .run_executor import RunExecutor
-from .session_ops import SessionOps
 
 
 class SessionRuntime:
@@ -148,17 +148,6 @@ class SessionRuntime:
             session_manager=self.session_manager,
             settings_getter=lambda: self.settings.compaction,
         )
-        self.session_ops = SessionOps(
-            session_manager=self.session_manager,
-            model_controller=self.model_controller,
-            auto_compaction_enabled_getter=lambda: self.settings.compaction.enabled,
-            steering_mode_getter=lambda: self.steering_mode,
-            follow_up_mode_getter=lambda: self.follow_up_mode,
-            tools_getter=lambda: self.available_tools,
-            extension_flags_getter=lambda: self.extension_flags,
-            steering_queue_count_getter=lambda: len(self._steering_queue),
-            follow_up_queue_count_getter=lambda: len(self._follow_up_queue),
-        )
         self.command_registry = build_command_registry(
             cwd=self.cwd,
             global_settings_getter=lambda: self.global_settings,
@@ -167,7 +156,7 @@ class SessionRuntime:
             on_settings_updated=self._apply_settings_update,
             extension_commands_getter=self.extension_runner.get_commands,
             runtime_context_getter=lambda: self,
-            session_ops=self.session_ops,
+            session_ops=self,
             model_controller=self.model_controller,
             compaction_service=self.compaction_service,
             reload_resources=self.reload_resources,
@@ -259,10 +248,31 @@ class SessionRuntime:
         return [item for item in models if needle in item.lower()]
 
     def get_messages(self) -> list[AgentMessage]:
-        return self.session_ops.get_messages()
+        return self.session_manager.build_context().messages
 
     def get_state(self) -> dict[str, Any]:
-        return self.session_ops.get_state()
+        header = self.session_manager.header
+        steering_count = len(self._steering_queue)
+        follow_up_count = len(self._follow_up_queue)
+        return {
+            "provider": self.model_controller.provider_name,
+            "modelId": self.model_controller.model_id,
+            "thinkingLevel": self.model_controller.thinking_level,
+            "isStreaming": False,
+            "isCompacting": False,
+            "steeringMode": self.steering_mode,
+            "followUpMode": self.follow_up_mode,
+            "sessionFile": str(self.session_manager.file) if self.session_manager.file else None,
+            "sessionId": header.id if header else None,
+            "sessionName": self.session_manager.get_session_name(),
+            "autoCompactionEnabled": self.settings.compaction.enabled,
+            "messageCount": len(self.session_manager.build_context().messages),
+            "pendingMessageCount": steering_count + follow_up_count,
+            "steeringQueueCount": steering_count,
+            "followUpQueueCount": follow_up_count,
+            "tools": self.available_tools,
+            "extensionFlags": dict(self.extension_flags),
+        }
 
     def steer(self, message: str, images: list[ImageContent] | None = None) -> None:
         expanded = self.prompt_pipeline.expand_prompt(message)
@@ -297,19 +307,63 @@ class SessionRuntime:
         return await self.tool_registry.execute(name, args)
 
     def list_sessions(self, limit: int = 20, offset: int = 0, include_current: bool = True) -> list[dict[str, Any]]:
-        return self.session_ops.list_sessions(limit=limit, offset=offset, include_current=include_current)
+        safe_limit = max(1, limit)
+        safe_offset = max(0, offset)
+        requested = safe_limit + safe_offset + (1 if not include_current else 0)
+        sessions = [
+            {
+                "path": item.path,
+                "modified": item.modified,
+                "messageCount": item.message_count,
+                "firstMessage": item.first_user_message,
+                "name": item.session_name,
+            }
+            for item in self.session_manager.list_sessions(limit=requested)
+        ]
+        if not include_current:
+            current = str(self.session_manager.file) if self.session_manager.file else None
+            sessions = [row for row in sessions if row["path"] != current]
+        if safe_offset:
+            sessions = sessions[safe_offset:]
+        return sessions[:safe_limit]
 
     def get_tree(self, limit: int | None = None, include_root: bool = False) -> dict[str, Any]:
-        return self.session_ops.get_tree(limit=limit, include_root=include_root)
+        entries = self.session_manager.get_tree_entries()
+        if limit is not None:
+            entries = entries[-max(1, limit):]
+        if include_root:
+            entries = [{"id": None, "parentId": None, "type": "root", "timestamp": None}, *entries]
+        return {"leafId": self.session_manager.leaf_id, "entries": entries}
 
     def switch_tree(self, leaf_id: str | None) -> bool:
-        return self.session_ops.switch_tree(leaf_id)
+        return self.session_manager.set_leaf(leaf_id)
 
     def resume_session(self, target: str | int) -> str:
-        return self.session_ops.resume_session(target)
+        if isinstance(target, int):
+            sessions = self.session_manager.list_sessions(limit=50)
+            index = target - 1
+            if index < 0 or index >= len(sessions):
+                raise ValueError(f"Invalid session index: {target}")
+            path = sessions[index].path
+        else:
+            path_obj = Path(target).expanduser()
+            if not path_obj.is_absolute():
+                path_obj = self.session_manager.session_dir / target
+            path = str(path_obj.resolve())
+        self.session_manager.switch_session_file(path)
+        self.model_controller.sync_from_session_context()
+        return path
 
     def fork_session(self, leaf_id: str | None = None) -> str | None:
-        return self.session_ops.fork_session(leaf_id=leaf_id)
+        if leaf_id is not None and leaf_id not in self.session_manager.by_id:
+            return None
+        source_leaf = leaf_id if leaf_id is not None else self.session_manager.leaf_id
+        source_messages = self.session_manager.build_context(leaf_id=source_leaf).messages if source_leaf else []
+        summary_text = generate_compaction_summary(source_messages, max_messages=8) if source_messages else None
+        new_file = self.session_manager.fork_current_branch(leaf_id=leaf_id)
+        if source_leaf and summary_text:
+            self.session_manager.append_branch_summary(summary_text, source_leaf)
+        return str(new_file) if new_file else None
 
     def compact_now(self) -> str:
         return self.compaction_service.compact_now()
@@ -346,7 +400,7 @@ class SessionRuntime:
         self.model_controller.set_thinking_level(level)
 
     def set_session_name(self, name: str) -> None:
-        self.session_ops.set_session_name(name)
+        self.session_manager.set_session_name(name)
 
     def set_scoped_models(self, patterns: list[str]) -> list[str]:
         return self.model_controller.set_scoped_models(patterns)
@@ -361,7 +415,7 @@ class SessionRuntime:
         return self.model_controller.cycle_model(direction=direction)
 
     def new_session(self, parent_session: str | None = None) -> None:
-        self.session_ops.new_session(parent_session=parent_session)
+        self.session_manager.new_session(parent_session=parent_session)
 
     async def prompt(
         self,

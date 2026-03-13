@@ -5,7 +5,6 @@ from .model_controller import ModelController
 from .prompt_pipeline import PromptPipeline
 from .provider_runtime import ProviderRuntime
 from .run_executor import RunExecutor
-from .session_ops import SessionOps
 from .session_runtime import SessionRuntime
 
 __all__ = [
@@ -17,6 +16,5 @@ __all__ = [
     "PromptPipeline",
     "ProviderRuntime",
     "RunExecutor",
-    "SessionOps",
     "SessionRuntime",
 ]

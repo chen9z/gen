@@ -1,8 +1,9 @@
 from __future__ import annotations
 
 import json
+from collections.abc import AsyncIterator
 from dataclasses import dataclass, field
-from typing import AsyncIterator, Literal
+from typing import Any, Literal
 
 from gen_agent.core.model_store import compute_usage_cost
 from gen_agent.models.content import TextContent, ThinkingContent, ToolCallContent, Usage, UsageCost
@@ -118,3 +119,27 @@ async def stream_events_from_assistant(message: AssistantMessage) -> AsyncIterat
         )
     yield ProviderAssistantEvent(event=AssistantMessageEvent(type="done"))
     yield ProviderFinalEvent(message=message)
+
+
+def coerce_usage_int(value: Any) -> int:
+    """Safely coerce a usage token count (may be None) to int."""
+    if value is None:
+        return 0
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        return 0
+
+
+async def complete_from_stream(
+    stream_fn: Any,
+    provider_label: str,
+) -> AssistantMessage:
+    """Consume a stream_complete() iterator and return the final message."""
+    final_message: AssistantMessage | None = None
+    async for item in stream_fn:
+        if item.type == "final":
+            final_message = item.message
+    if final_message is None:
+        raise RuntimeError(f"{provider_label} stream ended without final message")
+    return final_message
