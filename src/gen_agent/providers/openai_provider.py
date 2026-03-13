@@ -18,6 +18,7 @@ from .stream_types import (
     ProviderStreamEvent,
     StreamUsage,
     build_usage,
+    coerce_usage_int,
     complete_from_stream,
 )
 
@@ -142,11 +143,11 @@ class OpenAIProvider:
             if usage_raw is not None:
                 prompt_details = getattr(usage_raw, "prompt_tokens_details", None)
                 usage = StreamUsage(
-                    input=int(getattr(usage_raw, "prompt_tokens", 0) or 0),
-                    output=int(getattr(usage_raw, "completion_tokens", 0) or 0),
-                    cache_read=int(getattr(prompt_details, "cached_tokens", 0) or 0) if prompt_details else 0,
+                    input=coerce_usage_int(getattr(usage_raw, "prompt_tokens", 0)),
+                    output=coerce_usage_int(getattr(usage_raw, "completion_tokens", 0)),
+                    cache_read=coerce_usage_int(getattr(prompt_details, "cached_tokens", 0)) if prompt_details else 0,
                     cache_write=0,
-                    total_tokens=int(getattr(usage_raw, "total_tokens", 0) or 0),
+                    total_tokens=coerce_usage_int(getattr(usage_raw, "total_tokens", 0)),
                 )
 
             if not getattr(chunk, "choices", None):

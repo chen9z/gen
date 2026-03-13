@@ -132,14 +132,15 @@ def coerce_usage_int(value: Any) -> int:
 
 
 async def complete_from_stream(
-    stream_fn: Any,
+    stream: AsyncIterator[ProviderStreamEvent],
     provider_label: str,
 ) -> AssistantMessage:
     """Consume a stream_complete() iterator and return the final message."""
     final_message: AssistantMessage | None = None
-    async for item in stream_fn:
+    async for item in stream:
         if item.type == "final":
             final_message = item.message
+            break
     if final_message is None:
         raise RuntimeError(f"{provider_label} stream ended without final message")
     return final_message

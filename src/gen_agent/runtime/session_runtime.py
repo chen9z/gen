@@ -262,7 +262,7 @@ class SessionRuntime:
             "isCompacting": False,
             "steeringMode": self.steering_mode,
             "followUpMode": self.follow_up_mode,
-            "sessionFile": str(self.session_manager.file) if self.session_manager.file else None,
+            "sessionFile": self.session_file,
             "sessionId": header.id if header else None,
             "sessionName": self.session_manager.get_session_name(),
             "autoCompactionEnabled": self.settings.compaction.enabled,
