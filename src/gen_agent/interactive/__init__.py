@@ -1,28 +1,31 @@
-from .ptk_app import GenInteractiveApp, LIVE_CHAR_LIMIT, PtkExtensionUIContext, run_interactive_mode
-from .state_manager import StateManager
-from .event_processor import EventProcessor
-from .render_engine import RenderEngine
-from .commit_manager import CommitManager
-from .theme import Theme, DEFAULT_THEME, DARK_THEME, HIGH_CONTRAST_THEME
-from .data_models import ToolcallData, AssistantData, ToolRunData
-from .renderers import AssistantRenderer, ToolRunRenderer
+"""Interactive mode — minimal REPL with streaming output."""
 
-__all__ = [
-    "GenInteractiveApp",
-    "LIVE_CHAR_LIMIT",
-    "PtkExtensionUIContext",
-    "run_interactive_mode",
-    "StateManager",
-    "EventProcessor",
-    "RenderEngine",
-    "CommitManager",
-    "Theme",
-    "DEFAULT_THEME",
-    "DARK_THEME",
-    "HIGH_CONTRAST_THEME",
-    "ToolcallData",
-    "AssistantData",
-    "ToolRunData",
-    "AssistantRenderer",
-    "ToolRunRenderer",
-]
+from __future__ import annotations
+
+import sys
+
+from rich.console import Console
+
+from .app import InteractiveApp
+from .stream_view import StreamView
+
+
+async def run_interactive_mode(
+    session: object,
+    initial_message: str | None = None,
+) -> int:
+    """Entry point for interactive mode.
+
+    Falls back to print mode when stdin/stdout are not TTYs.
+    """
+    if not sys.stdin.isatty() or not sys.stdout.isatty():
+        from gen_agent.modes.print_mode import run_print_mode
+
+        return await run_print_mode(session, initial_message)
+
+    console = Console()
+    app = InteractiveApp(session, console)
+    return await app.run(initial_message=initial_message)
+
+
+__all__ = ["InteractiveApp", "StreamView", "run_interactive_mode"]

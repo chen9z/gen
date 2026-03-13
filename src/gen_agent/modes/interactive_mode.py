@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-from gen_agent.interactive.ptk_app import GenInteractiveApp, run_interactive_mode
-from gen_agent.interactive.blocks import LIVE_CHAR_LIMIT as _LIVE_CHAR_LIMIT
+from gen_agent.interactive import InteractiveApp, run_interactive_mode
 
-__all__ = ["GenInteractiveApp", "_LIVE_CHAR_LIMIT", "run_interactive_mode"]
+__all__ = ["InteractiveApp", "run_interactive_mode"]
