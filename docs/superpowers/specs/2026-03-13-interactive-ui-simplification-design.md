@@ -104,10 +104,10 @@ class InteractiveApp:
             # session.prompt() returns messages for slash commands (e.g. /model).
             # Print any returned assistant messages as direct output.
             if result:
-                for msg in result if isinstance(result, list) else [result]:
-                    content = getattr(msg, "content", None) or str(msg)
-                    if content:
-                        self._console.print(content)
+                for msg in (result if isinstance(result, list) else [result]):
+                    text = _extract_text(msg)
+                    if text:
+                        self._console.print(text)
         except asyncio.CancelledError:
             self._console.print("[yellow]Interrupted.[/yellow]")
         except SystemExit:
@@ -171,6 +171,7 @@ class InteractiveApp:
 **Key decisions:**
 - `PromptSession` with `WordCompleter` — no fuzzy matching, no @ path completion.
 - `FileHistory` — reuse prompt_toolkit's built-in, no custom `HistoryStore`.
+- `_extract_text(msg)` — helper to extract text from assistant message content blocks (content may be a string or a list of `AgentContentBlock` objects with `.type == "text"` and `.text` attribute).
 - `patch_stdout(raw=True)` — prevents Rich.Live and prompt_toolkit from corrupting each other.
 - No custom keyboard shortcuts beyond Ctrl+C (handled by SIGINT handler).
 - **Command routing**: Only `/quit` and `/help` handled locally. All other input (including slash commands like `/model`, `/resume`, `/compact`) delegated to `session.prompt()` which already implements them. This avoids duplicating session-level logic.
